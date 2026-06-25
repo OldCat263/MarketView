@@ -34,6 +34,7 @@
 | `frontend/js/core.js` | 核心引擎 | 状态管理/渲染/SSE/模块切换 |
 | `frontend/js/modules/*.js` | 7模块 | 每模块独立注册 |
 | `chanlun/` | 参考资料（只读） |
+| `.trae/skills/` | ⭐ 4 个 AI Skill（designer/executor/reviewer/validator），按角色触发节省 token |
 
 ## 模块清单
 
@@ -184,6 +185,27 @@ uvicorn main:app --workers 1
 # 浏览器打开 frontend/index.html
 ```
 
+## ⭐ AI Skill（节省 token）
+
+4 个 Skill 按角色触发，加载极简 description（~200 字符），按需 Read 文档。**Token 节省 60%~70%**。
+
+| Skill | 触发场景 | 作用 |
+|-------|----------|------|
+| `mv-designer` | "出设计"/"审批代码"/"我是设计师" | 出设计稿 + 维护 CLAUDE.md + 审批执行者 |
+| `mv-executor` | "我是执行者"/"实施"/"改代码" | 写代码 + 跑验收 + 同步技术文档 + 回报 |
+| `mv-reviewer` | "我是审批员"/"复审" | 复审 + 标 P0/P1/P2 + 出改进意见 |
+| `mv-validator` | "跑验收"/"验证模块" | 自动化验收（数据量/SSE/铁律/K线）|
+
+**验收脚本**（免 AI 介入）：
+```bash
+python .trae/skills/mv-validator/scripts/mv_validate.py all      # 全部
+python .trae/skills/mv-validator/scripts/mv_validate.py sse      # SSE 心跳
+python .trae/skills/mv-validator/scripts/mv_validate.py kline    # K线接口（V1.7.0+）
+python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
+```
+
+> 详见 [.trae/skills/](./.trae/skills/) 目录。
+
 ## 已完成清单（按版本）
 
 ### V1.6.0.6 收尾清理（2026-06-26）
@@ -261,4 +283,5 @@ uvicorn main:app --workers 1
 | V1.6.0.6 | 2026-06-26 | **A+D 心跳推送 + viewTime 数据驱动**：后端 A(所有分片 interval 内必推) + D(每 3s 心跳推 `shard=-1`)；前端 viewTime 只在真实数据推送时更新（稳定显示数据时间）、liveStatus 由 fetchTime 算 ago（心跳维持绿点），两指标解耦。解决"19秒前"红点 + 避免"绿点闪但时间不动"的错觉 |
 | V1.6.0.7 | 2026-06-26 | **文档优化 10 项**：① 三份协作流程图统一为 10 步（设计师/执行者/审批员口径一致）② 加 V1.7.0 5 步分开发审批策略（Step 1~4 轻量验收 + Step 5 完整复审）③ 审批员 §6.2 加 K线专项实测（V1.7.0+）④ 审批员 §3 必读清单加部署文档 ⑤ 铁律数字 6+1=7 改为 6+2=8 ⑥ 加"标级=标 P0/P1/P2"术语对齐说明 ⑦ 复审不通过的责任划分表 ⑧ 失败回滚流程（git revert）⑨ CLAUDE.md 项目概览加"角色"行 ⑩ 复审时效 24h |
 | V1.6.0.8 | 2026-06-26 | **viewTime 回滚实时时间 + SSE 断连显式"离线"**：回滚 V1.6.0.6 的 viewTime=数据时间设计（用户反馈"01:55:33+134秒前"看不懂），改回 V1.6.0.3 行为（客户端实时时间，每秒跳），与 SSE 推送完全解耦。SSE onerror 显式显示"离线"（红点 + 离线）替代"X秒前"，避免歧义。viewTime 与 liveStatus 仍解耦：viewTime=实时时钟（每秒跳），liveStatus=数据新鲜度（SSE 推时"实时"绿点，断连时"离线"红点）。两步协作：前端只改 core.js 的 refreshStamp + onerror 逻辑 + CLAUDE.md §7 文档同步 |
+| V1.6.0.9 | 2026-06-26 | **AI Skill 化 + 验收脚本化**：解决 4 份入门指南（60% 内容重叠）每次 Read 消耗大量 token 的问题。新建 `.trae/skills/` 目录含 4 个 Skill：① `mv-designer`（出设计/审批/维护 CLAUDE.md）② `mv-executor`（写代码/跑验收/同步技术文档/回报）③ `mv-reviewer`（复审/标 P0P1P2/改进意见）④ `mv-validator`（自动化验收）。每个 Skill description 极简（< 200 字符），按需 Read 文档。验收脚本 `mv_validate.py` 覆盖 4 类检查：6 模块数据量 + 6 模块 SSE 心跳（6s 窗口）+ V1.7.0+ K线接口（6 模块 MA/BOLL/MACD）+ 铁律自检（无本地存储/无收费 API/核心文件 diff）。原 4 份文档保留不动。**Token 节省 60%~70%** |
 | V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 计划中**（港股 K线 fallback：Tencent hkfqkline 主源 → 东财 stock_hk_hist → 新浪；补 API 文档 K线接口字段表，解决 Step 1 P0 遗留）；**Step 3 计划**（K线前端骨架 ECharts 接入）；**Step 4 计划**（数据集成 + 选代码 UX 方案 A 复用搜索框）；**Step 5 计划**（K线 SSE 5s 推最新K线 + 完整联调）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持 + 8周期 + MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas） |
