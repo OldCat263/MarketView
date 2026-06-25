@@ -249,11 +249,6 @@ window.MV = (function() {
             render();
           }
         }
-        // viewTime + liveStatus 无论 changed 与否都更新（SSE 收到就是新鲜的）
-        if (tab === m) {
-          let vt = document.getElementById('viewTime');
-          if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
-        }
         let ls = document.getElementById('liveStatus');
         if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
         let card = document.getElementById('card_' + m);
@@ -272,6 +267,9 @@ window.MV = (function() {
         let ago = Math.round((Date.now() - s.fetchTime) / 1000);
         let ls = document.getElementById('liveStatus');
         if (ls) ls.innerHTML = ago < 15 ? '<span class="conn-dot on"></span>实时' : '<span class="conn-dot off"></span>' + ago + '秒前';
+        // viewTime：客户端时间，每秒跳（独立于 SSE 推送）
+        let vt = document.getElementById('viewTime');
+        if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
       }
     }
   }
