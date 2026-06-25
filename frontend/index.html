@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarketView — 全市场数据</title>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div class="container">
+  <div class="header"><h1>MarketView</h1></div>
+  <div class="toast" id="toast" style="display:none"></div>
+
+  <!-- 模块卡片网格 -->
+  <div class="grid" id="grid"></div>
+
+  <!-- 数据视图 -->
+  <div class="panel" id="panel" style="display:none">
+    <div class="panel-bar">
+      <button class="back-btn" onclick="MV.closePanel()" title="返回首页">←</button>
+      <span class="conn-dot on" id="connDot" title="实时连接"></span>
+      <span style="font-size:11px;color:var(--dim)" id="connStatus">实时</span>
+      <span id="moduleTitle" style="color:var(--text);font-weight:600;margin-left:8px"></span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dim);font-size:12px" id="viewTime"></span>
+      <span style="font-size:11px" id="liveStatus"></span>
+    </div>
+    <div class="bar">
+      <input id="search" type="text" placeholder="搜索..." oninput="MV.doFilter()">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="wrap">
+      <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+      <div class="empty" id="empty">加载中...</div>
+    </div>
+    <div class="pager" id="pager" style="display:none">
+      <button onclick="MV.goPage('first')">首页</button>
+      <button onclick="MV.goPage('prev')">上一页</button>
+      <span id="pageInfo"></span>
+      <button onclick="MV.goPage('next')">下一页</button>
+      <button onclick="MV.goPage('last')">末页</button>
+    </div>
+  </div>
+
+  <div class="first-notice" id="firstNotice" style="display:none">
+    <div class="progress-wrap"><div class="progress-bar" id="loadBar"></div></div>
+    <div class="progress-text" id="loadStatus">正在加载...</div>
+  </div>
+  <div class="timestamp" id="globalStamp"></div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/modules/crypto.js"></script>
+<script src="js/modules/stock.js"></script>
+<script src="js/modules/etf.js"></script>
+<script src="js/modules/hk.js"></script>
+<script src="js/modules/us.js"></script>
+<script src="js/modules/index_mod.js"></script>
+<script src="js/modules/news.js"></script>
+<script>
+(function() {
+  let html = '';
+  MV.MODULES.forEach(m => {
+    html += '<div class="card" id="card_'+m.id+'" onclick="MV.'+(m.id==='crypto'?'startCrypto':'startModule')+'(\''+m.id+'\')">'+
+      '<div class="card-icon">'+m.icon+'</div>'+
+      '<div class="card-name">'+m.name+'</div>'+
+      '<div class="card-status"><span class="status">'+((m.id==='news')?'🚧':'⏳')+'</span></div>'+
+      '<div class="card-count">'+((m.id==='news')?'即将上线':'等待加载')+'</div>'+
+    '</div>';
+  });
+  document.getElementById('grid').innerHTML = html;
+})();
+</script>
+</body>
+</html>
