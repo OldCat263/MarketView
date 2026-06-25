@@ -52,9 +52,9 @@ def get_json():
         codes = [r['代码'] for r in _to_records(ak.stock_zh_a_spot())]
         rows = _from_tencent_threaded(codes)
         return json.dumps(rows, ensure_ascii=False)
-    except Exception: pass
+    except Exception as e: print(f'[stock] fallback: {e}')
     try: return _to_json(ak.stock_zh_a_spot_em())
-    except Exception: pass
+    except Exception as e: print(f'[stock] fallback: {e}')
     try: return _to_json(ak.stock_zh_a_spot())
-    except Exception: pass
+    except Exception as e: print(f'[stock] fallback: {e}')
     return '[]'

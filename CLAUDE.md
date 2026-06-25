@@ -16,10 +16,13 @@
 | 文件 | 职责 |
 |------|------|
 | `CLAUDE.md` | 📖 项目手册 |
-| `backend/main.py` | FastAPI 入口，路由，生命周期管理 |
-| `backend/fetcher.py` | 全部数据获取函数，自动数据源切换 |
+| `backend/main.py` | FastAPI 入口，分片缓存 + SSE推送 |
+| `backend/fetcher/` | 数据获取模块(7独立文件) |
 | `backend/requirements.txt` | Python 依赖 |
-| `frontend/index.html` | 前端：首页卡片 + 数据表格 + 翻页 |
+| `frontend/index.html` | 前端入口 | 纯HTML骨架，加载CSS/JS模块 |
+| `frontend/css/main.css` | 样式 | 暗色主题，响应式 |
+| `frontend/js/core.js` | 核心引擎 | 状态管理/渲染/SSE/模块切换 |
+| `frontend/js/modules/*.js` | 7模块 | 每模块独立注册 |
 | `chanlun/` | 参考资料（只读） |
 
 ## 模块清单
@@ -169,4 +172,5 @@ uvicorn main:app --workers 4
 | V1.4.2 | 2026-06-25 | 并行加载(Promise.all)+4worker；加载速度3倍提升 |
 | V1.4.3 | 2026-06-25 | 视觉反馈+连接状态+SSL优化 |
 | V1.5.0 | 2026-06-25 | 模块拆分: 7独立JS+核心引擎+CSS独立 |
-| V1.5.1 | 2026-06-25 | 统一网格容器: 卡片→面板导航, 所有模块在一个容器 |
+| V1.5.1 | 2026-06-25 | 统一网格容器 |
+| V1.6.0 | 2026-06-25 | 分片缓存+滚动daemon+SSE推送+diff闪动+A股/美股并发 |
