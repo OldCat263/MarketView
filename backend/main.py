@@ -14,6 +14,7 @@ from fetcher import (crypto_status, get_crypto_json,
     get_stock_json, get_etf_json, get_hk_json, get_us_json, get_index_json,
     fetch_stock_shard, fetch_etf_shard, fetch_hk_shard,
     fetch_us_shard, fetch_index_shard, fetch_crypto_shard)
+from fetcher import kline, indicators
 
 # ── 分片配置 ──
 SHARD_CFG = {
@@ -188,6 +189,45 @@ def us_spot():
 @app.get('/api/index/spot')
 def index_spot():
     return _ok(_cached_get('index'))
+
+# ── K线（V1.7.0）──
+KL_FN = {
+    'stock': kline.fetch_kline_stock, 'etf': kline.fetch_kline_etf,
+    'hk': kline.fetch_kline_hk, 'us': kline.fetch_kline_us,
+    'index': kline.fetch_kline_index, 'crypto': kline.fetch_kline_crypto,
+}
+
+KL_NAMES = {
+    'stock': ('sh600519', '贵州茅台'), 'etf': ('sh510300', '沪深300ETF'),
+    'hk': ('hk00700', '腾讯控股'), 'us': ('usAAPL', '苹果'),
+    'index': ('sh000001', '上证指数'), 'crypto': ('BTCUSDT', 'BTC/USDT'),
+}
+
+@app.get('/api/kline/{module}/{code}')
+def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750):
+    fn = KL_FN.get(module)
+    if not fn:
+        return JSONResponse({'error': f'unknown module: {module}'}, status_code=404)
+    try:
+        rows = fn(code, period, count)
+        if not rows:
+            return JSONResponse({'data': [], 'ma': {}, 'boll': {}, 'macd': {}, 'ts': time.time()})
+        closes = [r[2] for r in rows]  # 收盘价列
+        ma = indicators.calc_ma(closes)
+        boll = indicators.calc_boll(closes)
+        macd = indicators.calc_macd(closes)
+        # 推断 name
+        name = ''
+        for key, (def_code, def_name) in KL_NAMES.items():
+            if key == module:
+                name = def_name
+                break
+        return JSONResponse({
+            'code': code, 'name': name, 'module': module, 'period': period,
+            'data': rows, 'ma': ma, 'boll': boll, 'macd': macd, 'ts': time.time(),
+        })
+    except Exception as e:
+        return JSONResponse({'error': str(e)}, status_code=500)
 
 # ── SSE 分片推送 ──
 @app.get('/api/stream/{module}')
