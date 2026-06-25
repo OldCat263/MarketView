@@ -256,7 +256,7 @@ GET /api/kline/{module}/{code}?period=1d&count=750
 
 **数据源**:
 - A股/ETF/指数: 腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
-- 港股: 腾讯 `appstock/app/hfqkline/get`
+- 港股: 腾讯 `appstock/app/hkfqkline/get`（主源）→ 东财 `stock_hk_hist` → 新浪 `stock_hk_spot`（兜底，V1.7.0 Step 2）
 - 美股: 腾讯 `appstock/app/usfqkline/get`（us 前缀）
 - 加密: Binance `/api/v3/klines`
 
@@ -274,12 +274,42 @@ GET /api/kline/{module}/{code}?period=1d&count=750
 | macd | object | MACD(12/26/9) 的 DIF/DEA/HIST |
 | ts | float | 时间戳 |
 
-**指标说明**:
-- MA: 简单移动平均，前 N-1 个为 `null`
-- BOLL(20/2): MID=MA20, UP=MID+2*STDEV20, LOW=MID-2*STDEV20
-- MACD(12/26/9): DIF=EMA12-EMA26, DEA=EMA9(DIF), HIST=(DIF-DEA)*2
+**data 数组列索引**（每行 7 列）：
 
-**示例**:
+| 索引 | 字段 | 类型 | 说明 |
+|------|------|------|------|
+| 0 | date | string | 日期，格式 YYYY-MM-DD |
+| 1 | open | float | 开盘价 |
+| 2 | close | float | 收盘价 |
+| 3 | high | float | 最高价 |
+| 4 | low | float | 最低价 |
+| 5 | volume | float | 成交量 |
+| 6 | amount | float | 成交额 |
+
+**指标数组说明**：
+- MA5/10/20/60/120/250: 简单移动平均，前 N-1 个为 `null`（如 MA5 前 4 个 null，MA250 前 249 个 null）
+- BOLL(20/2): MID=MA20, UP=MID+2\*STDEV20, LOW=MID-2\*STDEV20。前 19 个为 `null`。STDEV 用样本标准差（n-1 分母）
+- MACD(12/26/9): DIF=EMA12-EMA26（前 25 个 null，EMA26-1=25），DEA=EMA9(DIF)（前 33 个 null，25+9-1），HIST=(DIF-DEA)\*2
+
+**验证命令**（6 模块全量 + 8 周期示例）：
+
+```bash
+# 6 模块日K（各 10 根）
+curl -s 'http://localhost:8000/api/kline/stock/sh600519?period=1d&count=10'
+curl -s 'http://localhost:8000/api/kline/etf/sh510300?period=1d&count=10'
+curl -s 'http://localhost:8000/api/kline/hk/hk00700?period=1d&count=10'
+curl -s 'http://localhost:8000/api/kline/us/usAAPL?period=1d&count=10'
+curl -s 'http://localhost:8000/api/kline/index/sh000001?period=1d&count=10'
+curl -s 'http://localhost:8000/api/kline/crypto/BTCUSDT?period=1d&count=10'
+
+# 8 周期示例（A股 茅台）
+for p in 1m 5m 15m 30m 60m 1d 1w 1M; do
+  echo -n "$p: "
+  curl -s "http://localhost:8000/api/kline/stock/sh600519?period=$p&count=10" | python -c "import sys,json; print(len(json.load(sys.stdin)['data']),'rows')"
+done
+```
+
+**示例**（生产环境）:
 ```bash
 curl 'https://oldcat.site/api/kline/stock/sh600519?period=1d&count=10'
 ```

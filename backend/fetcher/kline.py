@@ -1,4 +1,6 @@
-"""模块七：K线数据 — 腾讯 qt.gtimg.cn（A股/ETF/指数/港股/美股），Binance（加密）"""
+"""模块七：K线数据 — 腾讯 qt.gtimg.cn（A股/ETF/指数/港股/美股），Binance（加密）
+港股 3 源 fallback：tencent hkfqkline → 东财 stock_hk_hist → 新浪 stock_hk_spot
+"""
 import json, time, httpx
 
 # ── 腾讯 period 映射 ──
@@ -103,9 +105,76 @@ def fetch_kline_etf(code, period='1d', count=750):
     return _fetch_tencent(code, period, count)
 
 
-def fetch_kline_hk(code, period='1d', count=750):
-    """港股 K线 — 腾讯"""
+# ── 港股 K线 3 源 fallback ──
+
+def _fetch_hk_tencent(code, period, count):
+    """腾讯 hkfqkline（主源）"""
     return _fetch_tencent(code, period, count)
+
+
+def _fetch_hk_em(code, period, count):
+    """东财 stock_hk_hist（fallback 1）— 仅日/周/月"""
+    import akshare as ak
+    period_map = {'1d': 'daily', '1w': 'weekly', '1M': 'monthly'}
+    ak_period = period_map.get(period)
+    if not ak_period:
+        return []  # 分钟级不走东财
+    df = ak.stock_hk_hist(symbol=code, period=ak_period, adjust='qfq')
+    if df is None or len(df) == 0:
+        return []
+    df = df.tail(count)
+    rows = []
+    for _, row in df.iterrows():
+        rows.append([
+            str(row.get('日期', '')),
+            float(row.get('开盘', 0)),
+            float(row.get('收盘', 0)),
+            float(row.get('最高', 0)),
+            float(row.get('最低', 0)),
+            float(row.get('成交量', 0)),
+            float(row.get('成交额', 0)),
+        ])
+    return rows
+
+
+def _fetch_hk_sina(code, period, count):
+    """新浪 stock_hk_spot（兜底）— 仅返回 1 行当日行情"""
+    if period not in ('1d', '1w', '1M'):
+        return []  # 分钟级不走新浪
+    import akshare as ak
+    df = ak.stock_hk_spot()
+    if df is None or len(df) == 0:
+        return []
+    match = df[df['代码'] == code]
+    if len(match) == 0:
+        return []
+    r = match.iloc[0]
+    return [[
+        time.strftime('%Y-%m-%d'),
+        float(r.get('今开', 0) or 0),
+        float(r.get('最新价', 0) or 0),
+        float(r.get('最高', 0) or 0),
+        float(r.get('最低', 0) or 0),
+        float(r.get('成交量', 0) or 0),
+        float(r.get('成交额', 0) or 0),
+    ]]
+
+
+def fetch_kline_hk(code, period='1d', count=750):
+    """港股 K线：腾讯 hkfqkline（主源）→ 东财 stock_hk_hist → 新浪 spot（兜底）"""
+    sources = [
+        ('tencent', _fetch_hk_tencent),
+        ('eastmoney', _fetch_hk_em),
+        ('sina', _fetch_hk_sina),
+    ]
+    for name, fn in sources:
+        try:
+            data = fn(code, period, count)
+            if data and len(data) > 0:
+                return data
+        except Exception as e:
+            print(f'[kline_hk] {name} fallback: {e}')
+    return []
 
 
 def fetch_kline_us(code, period='1d', count=750):
