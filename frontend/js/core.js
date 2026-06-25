@@ -106,6 +106,7 @@ window.MV = (function() {
     if (m === 'crypto' && !cryptoOK) { startCrypto(); return; }
     if (!LOADED[m]) { startModule(m); return; }
     if (tab) ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, search: document.getElementById('search').value };
+    _connectSSE(m);  // 开启SSE实时推送
     let s = ST[m] || { page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '' };
     rows = s.rows || []; cols = s.cols || []; page = s.page || 1;
     sortKey = s.sortKey; sortDir = s.sortDir; updateTime = s.updateTime || '';
@@ -201,21 +202,31 @@ window.MV = (function() {
     if (st) st.textContent = ok ? '实时' : '离线';
   }
 
-  // ─── 后台静默刷新 ───
-  setInterval(async () => {
-    for (let m of MODULES) {
-      if (!LOADED[m.id] || m.id === 'news' || m.placeholder) continue;
-      if (m.id === 'crypto' && !cryptoOK) continue;
-      let cached = cacheGet(m.id);
-      if (cached) continue;
+  // ─── SSE 实时推送（替代轮询）───
+  let _sse = null;
+  function _connectSSE(m) {
+    if (_sse) { _sse.close(); _sse = null; }
+    let url = API + '/api/stream/' + m;
+    _sse = new EventSource(url);
+    _sse.addEventListener('update', function(e) {
       try {
-        await loadModule(m.id);
-        if (tab === m.id) { let s = ST[m.id]; rows = s.rows; cols = s.cols; updateTime = s.updateTime; render(); }
+        let nr = JSON.parse(e.data);
+        if (!nr || !nr.length) return;
+        let def = cols.length ? cols : Object.keys(nr[0]);
+        cols = def;
+        nr = nr.map(r => { let o = {}; def.forEach(k => { o[k] = r[k] !== undefined ? r[k] : '-'; }); return o; });
+        if (registry[m] && registry[m].postProcess) nr = registry[m].postProcess(nr);
+        rows = nr;
+        ST[m] = { rows: nr, cols: def, page: ST[m]?ST[m].page||1:1, sortKey: null, sortDir: 1, updateTime: new Date().toLocaleTimeString(), fetchTime: Date.now() };
+        if (tab === m) { render(); }
         latestUpdate = Date.now();
         _updateConnStatus(true);
-      } catch (e) { _updateConnStatus(false); }
-    }
-  }, 10000);
+        let card = document.getElementById('card_' + m);
+        if (card) card.querySelector('.card-count').textContent = nr.length + ' 条';
+      } catch(e) {}
+    });
+    _sse.onerror = function() { _sse.close(); setTimeout(() => _connectSSE(m), 5000); };
+  }
 
   // ─── 实时时钟 ───
   function refreshStamp() {

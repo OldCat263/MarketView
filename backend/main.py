@@ -97,6 +97,26 @@ def us_spot():
 def index_spot():
     return _ok_json_str(_cached_get('index', get_index_json))
 
+# ── SSE 推送 ──
+from fastapi.responses import StreamingResponse
+
+@app.get('/api/stream/{module}')
+async def stream_module(module: str):
+    """SSE 实时推送：每5秒推送当前模块的全量数据"""
+    if module not in ('stock','etf','hk','us','index','crypto'):
+        return StreamingResponse(iter(['event: error\ndata: unknown\n\n']), media_type='text/event-stream')
+    async def gen():
+        import asyncio as _aio
+        while True:
+            try:
+                raw = _cached_get(module, lambda: '[]')
+                yield f'event: update\ndata: {raw}\n\n'
+            except Exception:
+                yield ': heartbeat\n\n'
+            await _aio.sleep(5)
+    return StreamingResponse(gen(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=8000)
