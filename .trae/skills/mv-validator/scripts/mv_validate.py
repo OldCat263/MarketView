@@ -4,6 +4,7 @@
 MarketView 验收脚本
 跑模块数据量 + SSE 心跳 + K线接口 + 铁律自检 + 核心文件 diff
 0 token 消耗：调脚本即可，无需 AI 介入
+V1.6.0.15: Windows GBK 终端兼容（sys.stdout.reconfigure utf-8）
 
 用法：
   python mv_validate.py all      # 全部检查
@@ -21,6 +22,12 @@ import subprocess
 from urllib.request import urlopen
 from urllib.error import URLError
 import socket
+
+# V1.6.0.15: Windows 终端默认 GBK 不支持 emoji，
+# reconfigure 为 utf-8 让 ✅/⚠️/❌ 正常输出（Python 3.7+）
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 BASE_URL = os.environ.get('MV_BASE_URL', 'http://localhost:8000')
 # __file__ = d:\服务器ETF\.trae\skills\mv-validator\scripts\mv_validate.py
