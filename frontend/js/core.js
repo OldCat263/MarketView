@@ -237,15 +237,22 @@ window.MV = (function() {
           });
         });
         if (changed) {
-          st.fetchTime = Date.now();
-          st.updateTime = new Date().toLocaleTimeString();
-          latestUpdate = Date.now();
+          let now = Date.now(), timeStr = new Date().toLocaleTimeString();
+          st.fetchTime = now;
+          st.updateTime = timeStr;
+          latestUpdate = now;
           _updateConnStatus(true);
+          // 同步 4 处时间显示
           if (tab === m) {
             rows = st.rows;
             updateTime = st.updateTime;
             render();
           }
+          // viewTime + liveStatus + cardTime 无论当前tab都更新
+          let vt = document.getElementById('viewTime');
+          if (vt && tab === m) vt.textContent = '更新 ' + timeStr;
+          let ls = document.getElementById('liveStatus');
+          if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
         }
         let card = document.getElementById('card_' + m);
         if (card) card.querySelector('.card-count').textContent = st.rows.length + ' 条';
