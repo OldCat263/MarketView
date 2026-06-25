@@ -248,12 +248,14 @@ window.MV = (function() {
             updateTime = st.updateTime;
             render();
           }
-          // viewTime + liveStatus + cardTime 无论当前tab都更新
-          let vt = document.getElementById('viewTime');
-          if (vt && tab === m) vt.textContent = '更新 ' + timeStr;
-          let ls = document.getElementById('liveStatus');
-          if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
         }
+        // viewTime + liveStatus 无论 changed 与否都更新（SSE 收到就是新鲜的）
+        if (tab === m) {
+          let vt = document.getElementById('viewTime');
+          if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
+        }
+        let ls = document.getElementById('liveStatus');
+        if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
         let card = document.getElementById('card_' + m);
         if (card) card.querySelector('.card-count').textContent = st.rows.length + ' 条';
       } catch(e) {}
