@@ -127,6 +127,35 @@ uvicorn main:app --workers 4
 # 浏览器打开 frontend/index.html
 ```
 
+## 待清理清单（V1.6.0 执行，不实际删除仅记录）
+
+### A. 垃圾文件（12 个，建议删除）
+
+| 文件 | 说明 |
+|------|------|
+| `nul` | PowerShell `curl -o NUL` 误创建的空文件 |
+| `t.json` (1.3MB) | A股测试输出 |
+| `te.json` `th.json` `ti.json` `ts.json` `tu.json` | ETF/港股/指数/A股/美股 测试输出 |
+| `etf_test.json` `stock_test.json` | 测试输出 |
+| `A股模块API测试报告.md` `ETF模块API测试报告.md` | 测试报告（速度已记入版本历史） |
+| `oldcat-realtime-upgrade.html` | 旧实时化方案展示页（Trae 生成，已被 V1.6.0 设计取代） |
+
+### B. 代码冗余（4 处，建议清理）
+
+| 位置 | 问题 | 处理 |
+|------|------|------|
+| `backend/main.py:21` | `_cached_get(key, fetcher_fn)` 的 `fetcher_fn` 参数从未被调用 | 删参数 |
+| `backend/main.py:62` | `NO_CACHE = {}` 空字典当 headers 传等于没传，命名误导 | 删变量 |
+| `backend/fetcher/crypto.py:8-15` | `detect()` 与 `status()` 功能重叠，仅 print 不设 `_found_proxy` | 合并进 `status()` |
+| `frontend/js/core.js:51` | `let totalModules` 定义后从未使用（preloadAll 用 `totalMods`） | 删死变量 |
+
+### C. 文档过时（保留，V1.6.0 同步更新）
+
+| 文件 | 过时点 |
+|------|--------|
+| `docs/API文档.md` | base URL、美股源（改腾讯）、缓存策略描述 |
+| `CLAUDE.md` 固定文件清单 | `fetcher.py`→`fetcher/` 目录、`index.html`→`core.js+7模块+main.css` |
+
 ## 版本历史
 
 | 版本 | 日期 | 做了什么 |
