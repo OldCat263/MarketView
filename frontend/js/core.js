@@ -79,7 +79,7 @@ window.MV = (function() {
     ).join('');
   }
 
-  function doSort(k) { sortKey === k ? sortDir *= -1 : (sortKey = k, sortDir = -1); page = 1; ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, search: document.getElementById('search').value }; render(); }
+  function doSort(k) { sortKey === k ? sortDir *= -1 : (sortKey = k, sortDir = -1); page = 1; ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value }; render(); }
 
   // ─── 加载模块数据 ───
   async function loadModule(m) {
@@ -105,7 +105,7 @@ window.MV = (function() {
   function openModule(m) {
     if (m === 'crypto' && !cryptoOK) { startCrypto(); return; }
     if (!LOADED[m]) { startModule(m); return; }
-    if (tab) ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, search: document.getElementById('search').value };
+    if (tab) ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value };
     _connectSSE(m);  // 开启SSE实时推送
     let s = ST[m] || { page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '' };
     rows = s.rows || []; cols = s.cols || []; page = s.page || 1;
@@ -285,7 +285,7 @@ window.MV = (function() {
     let tp = Math.ceil(rows.length / pageSize) || 1;
     if (a === 'first') page = 1; else if (a === 'prev') page = Math.max(1, page - 1);
     else if (a === 'next') page = Math.min(tp, page + 1); else if (a === 'last') page = tp;
-    ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, search: document.getElementById('search').value };
+    ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value };
     render();
   }
   function doFilter() { page = 1; render(); }
