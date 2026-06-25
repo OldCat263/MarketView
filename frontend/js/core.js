@@ -112,10 +112,9 @@ window.MV = (function() {
     sortKey = s.sortKey; sortDir = s.sortDir; updateTime = s.updateTime || '';
     tab = m; document.getElementById('search').value = s.search || '';
     document.getElementById('moduleTitle').textContent = registry[m].icon + ' ' + registry[m].name;
-    let vtEl = document.getElementById('viewTime');
-    if (vtEl && ST[m]?.fetchTime) {
-      vtEl.textContent = '更新 ' + new Date(ST[m].fetchTime).toLocaleTimeString();
-    }
+    // V1.6.0.16: 删 viewTime 赋值（让 setInterval 自然跑出客户端时间）
+    // 改为刷新 fetchTime → liveStatus 立即显示"实时"绿点
+    if (ST[m]) ST[m].fetchTime = Date.now();
     document.getElementById('grid').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
     render();
