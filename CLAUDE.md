@@ -130,7 +130,7 @@ uvicorn main:app --workers 4
 # 浏览器打开 frontend/index.html
 ```
 
-## 待清理清单（V1.6.0 执行，不实际删除仅记录）
+## 待清理清单（V1.6.0.1 已全部完成 ✅）
 
 ### A. 垃圾文件（12 个，建议删除）
 
@@ -152,12 +152,12 @@ uvicorn main:app --workers 4
 | `backend/fetcher/crypto.py:8-15` | `detect()` 与 `status()` 功能重叠，仅 print 不设 `_found_proxy` | 合并进 `status()` |
 | `frontend/js/core.js:51` | `let totalModules` 定义后从未使用（preloadAll 用 `totalMods`） | 删死变量 |
 
-### C. 文档过时（保留，V1.6.0 同步更新）
+### C. 文档过时（V1.6.0.1 已同步更新 ✅）
 
-| 文件 | 过时点 |
-|------|--------|
-| `docs/API文档.md` | base URL、美股源（改腾讯）、缓存策略描述 |
-| `CLAUDE.md` 固定文件清单 | `fetcher.py`→`fetcher/` 目录、`index.html`→`core.js+7模块+main.css` |
+| 文件 | 过时点 | 状态 |
+|------|--------|------|
+| `docs/API文档.md` | base URL、美股源（改腾讯）、缓存策略描述、SSE端点 | ✅ 已更新 |
+| `CLAUDE.md` 固定文件清单 | `fetcher.py`→`fetcher/` 目录、`index.html`→`core.js+7模块+main.css` | ✅ 已更新 |
 
 ## 版本历史
 
@@ -174,3 +174,4 @@ uvicorn main:app --workers 4
 | V1.5.0 | 2026-06-25 | 模块拆分: 7独立JS+核心引擎+CSS独立 |
 | V1.5.1 | 2026-06-25 | 统一网格容器 |
 | V1.6.0 | 2026-06-25 | **P0全部解除**：SSE推送+分片缓存+滚动刷新+diff闪动；美股腾讯源(us前缀,17209条)；crypto代理诊断；指数global限流说明 |
+| V1.6.0.1 | 2026-06-25 | **回归修复**：预热键匹配_shards_→首次启动即生效；HK roller多源fallback→2773条恢复；index_{china,global}_结构保留；启动不再阻塞_crypto_status_fire-and-forget；except:pass全部改日志；API文档同步 |

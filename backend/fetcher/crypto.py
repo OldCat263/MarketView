@@ -30,7 +30,9 @@ async def _test(proxy: str | None) -> bool:
         async with httpx.AsyncClient(proxy=proxy, timeout=5) as c:
             resp = await c.get('https://api.binance.com/api/v3/ping')
             return resp.status_code == 200
-    except Exception: return False
+    except Exception as e:
+        print(f'[crypto] _test err: {e}')
+        return False
 
 def fetch_shard(shard_idx, total_shards):
     import asyncio
@@ -61,4 +63,6 @@ async def get_json():
                 '成交额(USD)': float(r['quoteVolume']),
             })
         return json.dumps(result, ensure_ascii=False)
-    except Exception: return '[]'
+    except Exception as e:
+        print(f'[crypto] spot err: {e}')
+        return '[]'

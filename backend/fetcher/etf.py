@@ -17,13 +17,19 @@ def get_json():
     global _source
     if _source == 'em':
         try: return _to_json(ak.fund_etf_spot_em())
-        except Exception: _source = None
+        except Exception as e:
+            print(f'[etf] em err: {e}')
+            _source = None
     if _source == 'ths':
         try: return _to_json(ak.fund_etf_spot_ths())
-        except Exception: _source = None
+        except Exception as e:
+            print(f'[etf] ths err: {e}')
+            _source = None
     for name, fn in [('em', ak.fund_etf_spot_em), ('ths', ak.fund_etf_spot_ths)]:
         try:
             df = fn(); _source = name
             return _to_json(df)
-        except Exception: continue
+        except Exception as e:
+            print(f'[etf] {name} err: {e}')
+            continue
     return '[]'

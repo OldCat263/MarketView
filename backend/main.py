@@ -36,10 +36,27 @@ _cache_lock = threading.Lock()
 _sse_queues = {m: queue.Queue() for m in SHARD_CFG}
 
 def _cached_get(key):
-    """读缓存：合并分片返回全量；未命中拉取回填"""
+    """读缓存：合并分片返回全量；支持 list 和 dict 两种数据结构"""
     with _cache_lock:
         c = _cache.get(key)
         if c and c.get('shards'):
+            # 取第一个非空 shard 判断数据类型
+            first = None
+            for i in sorted(c['shards'].keys()):
+                d = c['shards'][i].get('data')
+                if d is not None and d != []:
+                    first = d
+                    break
+            if first is None:
+                return '[]'
+            if isinstance(first, dict):
+                # dict 数据（如 index china/global）— 返回 shard 0 完整结构
+                for i in sorted(c['shards'].keys()):
+                    sd = c['shards'][i].get('data')
+                    if isinstance(sd, dict) and sd:
+                        return json.dumps(sd, ensure_ascii=False)
+                return '{}'
+            # list 数据 — 合并所有分片
             data = []
             for i in sorted(c['shards'].keys()):
                 data.extend(c['shards'][i].get('data', []))
@@ -70,8 +87,10 @@ def _roller(key, fetch_shard_fn):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print('[lifespan] start')
-    await crypto_status()
-    print('[lifespan] crypto_status done')
+    # fire-and-forget：代理检测不阻塞启动（crypto 模块首次请求时也会自检）
+    import asyncio as _aio
+    _aio.ensure_future(crypto_status())
+    print('[lifespan] crypto_status dispatched (non-blocking)')
     # 启动滚动刷新线程（每模块一个）
     for m in SHARD_CFG:
         if m in SHARD_FN:
@@ -81,17 +100,31 @@ async def lifespan(app: FastAPI):
                 print(f'[lifespan] roller {m} started OK')
             except Exception as e:
                 print(f'[lifespan] roller {m} FAIL: {e}')
-    # 启动首轮全量预加载（加速首次访问）
+    # 启动首轮全量预加载（加速首次访问）— 写分片 schema，与 _cached_get 一致
     def _initial_load():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
                         ('hk', get_hk_json), ('us', get_us_json), ('index', get_index_json)]:
             try:
-                data = fn()
+                raw = fn()
+                data = json.loads(raw) if isinstance(raw, str) else raw
+                n = SHARD_CFG[key]['n']
+                if isinstance(data, list) and not data:
+                    print(f'[Preload] {key} empty, skipped (roller data preserved)')
+                    continue
+                if isinstance(data, dict) and not data:
+                    print(f'[Preload] {key} empty dict, skipped (roller data preserved)')
+                    continue
                 with _cache_lock:
-                    _cache.setdefault(key, {})
-                    _cache[key]['data'] = data
-                    _cache[key]['ts'] = time.time()
-                print(f'[Preload] {key} OK')
+                    c = _cache.setdefault(key, {'shards': {}, 'cols': []})
+                    if isinstance(data, list):
+                        chunk = max(1, len(data) // n)
+                        for i in range(n):
+                            shard_data = data[i*chunk:(i+1)*chunk] if i < n-1 else data[i*chunk:]
+                            c['shards'][i] = {'data': shard_data, 'ts': time.time()}
+                    else:
+                        # dict 数据（如 index china/global）— 整体放 shard 0
+                        c['shards'][0] = {'data': data, 'ts': time.time()}
+                print(f'[Preload] {key} OK ({len(data) if isinstance(data, list) else "dict"} → {n} shards)')
             except Exception as e:
                 print(f'[Preload] {key}: {e}')
     threading.Thread(target=_initial_load, daemon=True).start()
