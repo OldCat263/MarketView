@@ -44,15 +44,8 @@ def _cached_get(key, fetcher_fn):
             for i in sorted(c['shards'].keys()):
                 data.extend(c['shards'][i].get('data', []))
             return json.dumps(data, ensure_ascii=False) if data else '[]'
-    # 未命中：拉取回填
-    try:
-        raw = fetcher_fn()
-        data = json.loads(raw) if isinstance(raw, str) else raw
-        with _cache_lock:
-            _cache[key] = {'data': raw, 'ts': time.time()}
-        return raw if isinstance(raw, str) else json.dumps(data, ensure_ascii=False)
-    except Exception:
-        return '[]'
+    # 未命中：等滚动线程预热（不阻塞worker）
+    return '[]'
 
 def _roller(key, fetch_shard_fn):
     """滚动刷新线程：轮转每个分片"""
