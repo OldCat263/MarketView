@@ -263,13 +263,17 @@ window.MV = (function() {
     document.getElementById('globalStamp').innerHTML = '实时时间：<span style="font-size:16px;font-weight:700" class="live">' + new Date().toLocaleTimeString() + '</span>';
     if (tab) {
       let s = ST[tab];
+      // viewTime：永远每秒跳（独立于 ST 状态和 fetchTime）
+      let vt = document.getElementById('viewTime');
+      if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
+      // liveStatus：依赖 fetchTime，无则显示"--"
       if (s && s.fetchTime) {
         let ago = Math.round((Date.now() - s.fetchTime) / 1000);
         let ls = document.getElementById('liveStatus');
         if (ls) ls.innerHTML = ago < 15 ? '<span class="conn-dot on"></span>实时' : '<span class="conn-dot off"></span>' + ago + '秒前';
-        // viewTime：客户端时间，每秒跳（独立于 SSE 推送）
-        let vt = document.getElementById('viewTime');
-        if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
+      } else {
+        let ls = document.getElementById('liveStatus');
+        if (ls) ls.innerHTML = '<span class="conn-dot off"></span>--';
       }
     }
   }
