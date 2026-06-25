@@ -35,7 +35,7 @@ _cache = {}        # key → {'shards': {i:{'data':[],'ts':0}}, 'cols':[]}
 _cache_lock = threading.Lock()
 _sse_queues = {m: queue.Queue() for m in SHARD_CFG}
 
-def _cached_get(key, fetcher_fn):
+def _cached_get(key):
     """读缓存：合并分片返回全量；未命中拉取回填"""
     with _cache_lock:
         c = _cache.get(key)
@@ -51,6 +51,7 @@ def _roller(key, fetch_shard_fn):
     """滚动刷新线程：轮转每个分片"""
     cfg = SHARD_CFG[key]
     i = 0
+    print(f'[roller] {key} thread started, shards={cfg["n"]}, interval={cfg["interval"]}s')
     while True:
         try:
             data = fetch_shard_fn(i, cfg['n'])
@@ -68,11 +69,18 @@ def _roller(key, fetch_shard_fn):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print('[lifespan] start')
     await crypto_status()
+    print('[lifespan] crypto_status done')
     # 启动滚动刷新线程（每模块一个）
     for m in SHARD_CFG:
         if m in SHARD_FN:
-            threading.Thread(target=_roller, args=(m, SHARD_FN[m]), daemon=True).start()
+            print(f'[lifespan] starting roller: {m}')
+            try:
+                threading.Thread(target=_roller, args=(m, SHARD_FN[m]), daemon=True).start()
+                print(f'[lifespan] roller {m} started OK')
+            except Exception as e:
+                print(f'[lifespan] roller {m} FAIL: {e}')
     # 启动首轮全量预加载（加速首次访问）
     def _initial_load():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
@@ -111,23 +119,23 @@ async def crypto_spot():
 
 @app.get('/api/stock/spot')
 def stock_spot():
-    return _ok(_cached_get('stock', get_stock_json))
+    return _ok(_cached_get('stock'))
 
 @app.get('/api/etf/spot')
 def etf_spot():
-    return _ok(_cached_get('etf', get_etf_json))
+    return _ok(_cached_get('etf'))
 
 @app.get('/api/hk/spot')
 def hk_spot():
-    return _ok(_cached_get('hk', get_hk_json))
+    return _ok(_cached_get('hk'))
 
 @app.get('/api/us/spot')
 def us_spot():
-    return _ok(_cached_get('us', get_us_json))
+    return _ok(_cached_get('us'))
 
 @app.get('/api/index/spot')
 def index_spot():
-    return _ok(_cached_get('index', get_index_json))
+    return _ok(_cached_get('index'))
 
 # ── SSE 分片推送 ──
 @app.get('/api/stream/{module}')
