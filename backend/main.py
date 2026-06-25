@@ -19,13 +19,14 @@ _cache_lock = threading.Lock()
 CACHE_TTL = 5  # 缓存5秒，读取秒级响应
 
 def _cached_get(key, fetcher_fn):
-    """读缓存：命中直接返回，未命中拉取回填"""
+    """读缓存：命中直接返回，未命中拉取回填（兼容 async）"""
     now = time.time()
     with _cache_lock:
         entry = _cache.get(key)
         if entry and now - entry['ts'] < CACHE_TTL:
             return entry['data']
-    data = fetcher_fn()
+    import inspect, asyncio as _aio
+    data = _aio.run(fetcher_fn()) if inspect.iscoroutinefunction(fetcher_fn) else fetcher_fn()
     with _cache_lock:
         _cache[key] = {'data': data, 'ts': time.time()}
     return data
@@ -37,7 +38,8 @@ def _bg_refresh():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
                         ('hk', get_hk_json), ('us', get_us_json), ('index', get_index_json)]:
             try:
-                data = fn()
+                import inspect as _inspect, asyncio as _aio
+                data = _aio.run(fn()) if _inspect.iscoroutinefunction(fn) else fn()
                 with _cache_lock:
                     _cache[key] = {'data': data, 'ts': time.time()}
             except Exception:
@@ -52,7 +54,8 @@ async def lifespan(app: FastAPI):
                         ('hk', get_hk_json), ('us', get_us_json),
                         ('index', get_index_json)]:
             try:
-                data = fn()
+                import inspect as _inspect, asyncio as _aio
+                data = _aio.run(fn()) if _inspect.iscoroutinefunction(fn) else fn()
                 with _cache_lock:
                     _cache[key] = {'data': data, 'ts': time.time()}
                 print(f'[Preload] {key} OK')
