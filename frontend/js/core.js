@@ -273,10 +273,16 @@ window.MV = (function() {
 
   // ─── 实时时钟 ───
   function refreshStamp() {
+    // ① UI 时钟（永远跳，与 tab/SSE 完全解耦）
     document.getElementById('globalStamp').innerHTML = '实时时间：<span style="font-size:16px;font-weight:700" class="live">' + new Date().toLocaleTimeString() + '</span>';
+    // ② viewTime：客户端实时时钟（永远跳，与 tab/SSE 完全解耦，V1.6.0.14 升级）
+    let vtEl = document.getElementById('viewTime');
+    if (vtEl) {
+      vtEl.textContent = '更新 ' + new Date().toLocaleTimeString();
+    }
+    // ③ liveStatus：依赖 tab + fetchTime（不跳，仅在切模块/SSE 变化时更新）
     if (tab) {
       let s = ST[tab];
-      // liveStatus：依赖 fetchTime（心跳保持活性），无则显示"离线"
       if (s && s.fetchTime) {
         let ago = Math.round((Date.now() - s.fetchTime) / 1000);
         let ls = document.getElementById('liveStatus');
@@ -284,11 +290,6 @@ window.MV = (function() {
       } else {
         let ls = document.getElementById('liveStatus');
         if (ls) ls.innerHTML = '<span class="conn-dot off"></span>离线';
-      }
-      // viewTime：客户端实时时钟，每秒跳（与 SSE 推送完全解耦，V1.6.0.8 设计）
-      let vtEl = document.getElementById('viewTime');
-      if (vtEl && tab) {
-        vtEl.textContent = '更新 ' + new Date().toLocaleTimeString();
       }
     }
   }
