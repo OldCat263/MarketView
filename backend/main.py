@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title='MarketView', version='1.5.1', docs_url=None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
-NO_CACHE = {'Cache-Control': 'no-store, no-cache, must-revalidate'}
+NO_CACHE = {}  # 不禁用客户端缓存，让浏览器自由缓存
 
 def _ok_json_str(json_str):
     return JSONResponse({'data': json.loads(json_str), 'time': datetime.now().strftime('%H:%M:%S')}, headers=NO_CACHE)
