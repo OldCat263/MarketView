@@ -84,6 +84,18 @@ def _roller(key, fetch_shard_fn):
         i = (i + 1) % cfg['n']
         time.sleep(cfg['interval'])
 
+def _heartbeat(key, interval=3):
+    """心跳推送：每 interval 秒推 {shard:-1} 维持客户端活性显示"""
+    print(f'[heartbeat] {key} started, interval={interval}s')
+    while True:
+        try:
+            time.sleep(interval)
+            _sse_queues[key].put_nowait({'shard': -1, 'data': [], 'ts': time.time()})
+        except queue.Full:
+            pass
+        except Exception as e:
+            print(f'[heartbeat] {key}: {e}')
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print('[lifespan] start')
@@ -100,6 +112,13 @@ async def lifespan(app: FastAPI):
                 print(f'[lifespan] roller {m} started OK')
             except Exception as e:
                 print(f'[lifespan] roller {m} FAIL: {e}')
+    # 启动心跳推送线程（每模块一个）
+    for m in SHARD_CFG:
+        try:
+            threading.Thread(target=_heartbeat, args=(m,), daemon=True).start()
+            print(f'[lifespan] heartbeat {m} started')
+        except Exception as e:
+            print(f'[lifespan] heartbeat {m} FAIL: {e}')
     # 启动首轮全量预加载（加速首次访问）— 写分片 schema，与 _cached_get 一致
     def _initial_load():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),

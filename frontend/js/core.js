@@ -112,7 +112,10 @@ window.MV = (function() {
     sortKey = s.sortKey; sortDir = s.sortDir; updateTime = s.updateTime || '';
     tab = m; document.getElementById('search').value = s.search || '';
     document.getElementById('moduleTitle').textContent = registry[m].icon + ' ' + registry[m].name;
-    document.getElementById('viewTime').textContent = '更新 ' + updateTime;
+    let vtEl = document.getElementById('viewTime');
+    if (vtEl && ST[m]?.fetchTime) {
+      vtEl.textContent = '更新 ' + new Date(ST[m].fetchTime).toLocaleTimeString();
+    }
     document.getElementById('grid').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
     render();
@@ -211,6 +214,11 @@ window.MV = (function() {
     _sse.onmessage = function(e) {
       try {
         let msg = JSON.parse(e.data);
+        if (msg.shard === -1) {
+          // 心跳：仅刷 fetchTime，不更新 viewTime、不重渲染
+          if (ST[m]) ST[m].fetchTime = Date.now();
+          return;
+        }
         if (!msg || !msg.data || !msg.data.length) return;
         let st = ST[m];
         if (!st || !st.rows) return;
@@ -263,10 +271,7 @@ window.MV = (function() {
     document.getElementById('globalStamp').innerHTML = '实时时间：<span style="font-size:16px;font-weight:700" class="live">' + new Date().toLocaleTimeString() + '</span>';
     if (tab) {
       let s = ST[tab];
-      // viewTime：永远每秒跳（独立于 ST 状态和 fetchTime）
-      let vt = document.getElementById('viewTime');
-      if (vt) vt.textContent = '更新 ' + new Date().toLocaleTimeString();
-      // liveStatus：依赖 fetchTime，无则显示"--"
+      // liveStatus：依赖 fetchTime（心跳保持活性），无则显示"--"
       if (s && s.fetchTime) {
         let ago = Math.round((Date.now() - s.fetchTime) / 1000);
         let ls = document.getElementById('liveStatus');
