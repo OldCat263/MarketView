@@ -32,6 +32,10 @@ async def _test(proxy: str | None) -> bool:
             return resp.status_code == 200
     except Exception: return False
 
+def fetch_shard(shard_idx, total_shards):
+    import asyncio
+    return json.loads(asyncio.run(get_json()))
+
 async def get_json():
     global _found_proxy
     proxy = os.environ.get('CRYPTO_PROXY') or _found_proxy

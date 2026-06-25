@@ -4,6 +4,15 @@ from .utils import _to_records
 
 _source = None
 
+def fetch_shard(shard_idx, total_shards):
+    result = get_json()
+    data = json.loads(result)
+    all_rows = data.get('china', []) + data.get('global', [])
+    if total_shards <= 1: return all_rows
+    chunk = max(1, len(all_rows) // total_shards)
+    s = shard_idx * chunk; e = s + chunk if shard_idx < total_shards - 1 else len(all_rows)
+    return all_rows[s:e]
+
 def get_json():
     global _source
     if _source == 'em':

@@ -36,6 +36,16 @@ def _from_tencent_threaded(codes, workers=11):
             result.extend(f.result())
     return result
 
+def fetch_shard(shard_idx, total_shards):
+    """分片获取：total_shards=11，每片拉 ~500 只"""
+    codes = [r['代码'] for r in _to_records(ak.stock_zh_a_spot())]
+    chunk_size = max(1, len(codes) // total_shards)
+    my_codes = codes[shard_idx * chunk_size : (shard_idx + 1) * chunk_size]
+    if shard_idx == total_shards - 1:
+        my_codes = codes[shard_idx * chunk_size:]  # 最后一片兜底
+    rows = _from_tencent_threaded(my_codes, workers=min(3, len(my_codes) // 50 + 1))
+    return rows
+
 def get_json():
     """A 股实时行情 — 腾讯线程池并发优先"""
     try:

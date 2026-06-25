@@ -3,6 +3,12 @@ import json, time, httpx, akshare as ak
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import _safe_float, _to_json, _to_records
 
+def fetch_shard(shard_idx, total_shards):
+    codes = _load_us_codes()
+    chunk = max(1, len(codes) // total_shards)
+    my = codes[shard_idx*chunk:(shard_idx+1)*chunk] if shard_idx < total_shards-1 else codes[shard_idx*chunk:]
+    return _from_tencent_threaded(my, workers=min(3, len(my)//50+1))
+
 _us_codes_cache = None
 _us_codes_ts = 0
 

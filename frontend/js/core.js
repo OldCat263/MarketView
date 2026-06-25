@@ -202,29 +202,55 @@ window.MV = (function() {
     if (st) st.textContent = ok ? '实时' : '离线';
   }
 
-  // ─── SSE 实时推送（替代轮询）───
+  // ─── SSE 分片推送 + diff 闪动 ───
   let _sse = null;
   function _connectSSE(m) {
     if (_sse) { _sse.close(); _sse = null; }
     let url = API + '/api/stream/' + m;
     _sse = new EventSource(url);
-    _sse.addEventListener('update', function(e) {
+    _sse.onmessage = function(e) {
       try {
-        let nr = JSON.parse(e.data);
-        if (!nr || !nr.length) return;
-        let def = cols.length ? cols : Object.keys(nr[0]);
-        cols = def;
-        nr = nr.map(r => { let o = {}; def.forEach(k => { o[k] = r[k] !== undefined ? r[k] : '-'; }); return o; });
-        if (registry[m] && registry[m].postProcess) nr = registry[m].postProcess(nr);
-        rows = nr;
-        ST[m] = { rows: nr, cols: def, page: ST[m]?ST[m].page||1:1, sortKey: null, sortDir: 1, updateTime: new Date().toLocaleTimeString(), fetchTime: Date.now() };
-        if (tab === m) { render(); }
-        latestUpdate = Date.now();
-        _updateConnStatus(true);
+        let msg = JSON.parse(e.data);
+        if (!msg || !msg.data || !msg.data.length) return;
+        let st = ST[m];
+        if (!st || !st.rows) return;
+        let shardRows = msg.data;
+        // 为分片数据建索引，按"代码"匹配旧行做 diff
+        let byCode = {};
+        shardRows.forEach(r => { let c = r['代码'] || r['交易对']; if (c) byCode[c] = r; });
+        let changed = false;
+        st.rows.forEach((old, idx) => {
+          let code = old['代码'] || old['交易对'];
+          let neu = byCode[code];
+          if (!neu) return;
+          Object.keys(neu).forEach(k => {
+            let ov = old[k], nv = neu[k];
+            if (ov != nv) {
+              old[k] = nv;
+              changed = true;
+              // 视觉闪动
+              if (typeof nv === 'number' && (k.includes('涨跌') || k.includes('价') || k.includes('price') || k.includes('change'))) {
+                let cell = document.querySelector('td[data-code="' + code + '"][data-field="' + k + '"]');
+                if (cell) { cell.classList.remove('flash-up', 'flash-down'); void cell.offsetWidth; cell.classList.add(nv > ov ? 'flash-up' : 'flash-down'); }
+              }
+            }
+          });
+        });
+        if (changed) {
+          st.fetchTime = Date.now();
+          st.updateTime = new Date().toLocaleTimeString();
+          latestUpdate = Date.now();
+          _updateConnStatus(true);
+          if (tab === m) {
+            rows = st.rows;
+            updateTime = st.updateTime;
+            render();
+          }
+        }
         let card = document.getElementById('card_' + m);
-        if (card) card.querySelector('.card-count').textContent = nr.length + ' 条';
+        if (card) card.querySelector('.card-count').textContent = st.rows.length + ' 条';
       } catch(e) {}
-    });
+    };
     _sse.onerror = function() { _sse.close(); setTimeout(() => _connectSSE(m), 5000); };
   }
 
