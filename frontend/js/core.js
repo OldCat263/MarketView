@@ -263,7 +263,12 @@ window.MV = (function() {
         if (card) card.querySelector('.card-count').textContent = st.rows.length + ' 条';
       } catch(e) {}
     };
-    _sse.onerror = function() { _sse.close(); setTimeout(() => _connectSSE(m), 5000); };
+    _sse.onerror = function() {
+      let ls = document.getElementById('liveStatus');
+      if (ls) ls.innerHTML = '<span class="conn-dot off"></span>离线';
+      _sse.close();
+      setTimeout(() => _connectSSE(m), 5000);
+    };
   }
 
   // ─── 实时时钟 ───
@@ -271,14 +276,19 @@ window.MV = (function() {
     document.getElementById('globalStamp').innerHTML = '实时时间：<span style="font-size:16px;font-weight:700" class="live">' + new Date().toLocaleTimeString() + '</span>';
     if (tab) {
       let s = ST[tab];
-      // liveStatus：依赖 fetchTime（心跳保持活性），无则显示"--"
+      // liveStatus：依赖 fetchTime（心跳保持活性），无则显示"离线"
       if (s && s.fetchTime) {
         let ago = Math.round((Date.now() - s.fetchTime) / 1000);
         let ls = document.getElementById('liveStatus');
         if (ls) ls.innerHTML = ago < 15 ? '<span class="conn-dot on"></span>实时' : '<span class="conn-dot off"></span>' + ago + '秒前';
       } else {
         let ls = document.getElementById('liveStatus');
-        if (ls) ls.innerHTML = '<span class="conn-dot off"></span>--';
+        if (ls) ls.innerHTML = '<span class="conn-dot off"></span>离线';
+      }
+      // viewTime：客户端实时时钟，每秒跳（与 SSE 推送完全解耦，V1.6.0.8 设计）
+      let vtEl = document.getElementById('viewTime');
+      if (vtEl && tab) {
+        vtEl.textContent = '更新 ' + new Date().toLocaleTimeString();
       }
     }
   }
