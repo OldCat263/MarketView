@@ -1,9 +1,9 @@
-"""模块二：A股 — 腾讯 qt.gtimg.cn 优先(并发11路)，东财/新浪备选"""
-import json, asyncio, httpx, akshare as ak
+"""模块二：A股 — 腾讯 qt.gtimg.cn 优先，东财/新浪备选"""
+import json, httpx, akshare as ak
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import _safe_float, _to_json, _to_records
 
 def _parse_tencent_line(line):
-    """解析腾讯单行 → dict"""
     if '="' not in line: return None
     _, data = line.split('="', 1)
     fields = data.rstrip('";\n').split('~')
@@ -19,41 +19,32 @@ def _parse_tencent_line(line):
         '量比': _safe_float(fields[46]) if len(fields) > 46 else 0,
     }
 
-async def _from_tencent_concurrent(codes: list, concurrency: int = 11):
-    """腾讯批量查询，并发11路（111批→~11轮）"""
+def _from_tencent_threaded(codes, workers=11):
+    """腾讯批量查询，11线程并发"""
     batches = [codes[i:i+50] for i in range(0, len(codes), 50)]
-    sem = asyncio.Semaphore(concurrency)
     result = []
-
-    async def fetch_one(batch):
-        async with sem:
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    url = 'https://qt.gtimg.cn/q=' + ','.join(batch)
-                    resp = await client.get(url)
-                    return [r for r in (_parse_tencent_line(l) for l in resp.text.split('\n')) if r]
-            except Exception:
-                return []
-
-    tasks = [fetch_one(b) for b in batches]
-    batch_results = await asyncio.gather(*tasks)
-    for br in batch_results:
-        result.extend(br)
+    def fetch_batch(batch):
+        try:
+            url = 'https://qt.gtimg.cn/q=' + ','.join(batch)
+            resp = httpx.get(url, timeout=30)
+            return [r for r in (_parse_tencent_line(l) for l in resp.text.split('\n')) if r]
+        except Exception:
+            return []
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(fetch_batch, b) for b in batches]
+        for f in as_completed(futures):
+            result.extend(f.result())
     return result
 
-async def get_json():
-    """A 股实时行情 — 腾讯并发优先"""
-    # 腾讯
+def get_json():
+    """A 股实时行情 — 腾讯线程池并发优先"""
     try:
         codes = [r['代码'] for r in _to_records(ak.stock_zh_a_spot())]
-        rows = await _from_tencent_concurrent(codes)
+        rows = _from_tencent_threaded(codes)
         return json.dumps(rows, ensure_ascii=False)
-    except Exception:
-        pass
-    # 东财
+    except Exception: pass
     try: return _to_json(ak.stock_zh_a_spot_em())
     except Exception: pass
-    # 新浪
     try: return _to_json(ak.stock_zh_a_spot())
     except Exception: pass
     return '[]'
