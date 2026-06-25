@@ -5,14 +5,7 @@ _found_proxy = None
 _PROXY_PORTS = ['7897','7890','10809','10808','1080','8118','8888']
 _PROXY_HOSTS = ['127.0.0.1', 'localhost']
 
-async def detect():
-    proxy = os.environ.get('CRYPTO_PROXY')
-    if proxy and await _test(proxy):
-        print(f'[Crypto] 代理可用: {proxy}')
-    elif proxy:
-        print(f'[Crypto] 代理不可达: {proxy}')
-    else:
-        print('[Crypto] 未设置 CRYPTO_PROXY')
+_detect_done = False
 
 async def status(proxy_override: str = None) -> dict:
     global _found_proxy

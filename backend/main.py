@@ -10,7 +10,7 @@ import json, threading, time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fetcher import (detect_crypto, crypto_status, get_crypto_json,
+from fetcher import (crypto_status, get_crypto_json,
     get_stock_json, get_etf_json, get_hk_json, get_us_json, get_index_json)
 
 # ── 内存缓存层（纯RAM，不落盘，不违铁律）──
@@ -19,12 +19,16 @@ _cache_lock = threading.Lock()
 CACHE_TTL = 5  # 缓存5秒，读取秒级响应
 
 def _cached_get(key, fetcher_fn):
-    """纯读缓存：API永远不走拉取逻辑，只读RAM"""
+    """读缓存：命中直接返回，未命中拉取回填"""
+    now = time.time()
     with _cache_lock:
         entry = _cache.get(key)
-        if entry:
+        if entry and now - entry['ts'] < CACHE_TTL:
             return entry['data']
-    return '[]'  # 缓存还没准备好
+    data = fetcher_fn()
+    with _cache_lock:
+        _cache[key] = {'data': data, 'ts': time.time()}
+    return data
 
 def _bg_refresh():
     """后台预刷新：持续更新缓存"""
@@ -41,11 +45,12 @@ def _bg_refresh():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await detect_crypto()
+    await crypto_status()  # 启动时检测代理
     # 启动时立即预加载一次，然后后台持续刷新
     def _initial_load():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
-                        ('hk', get_hk_json), ('us', get_us_json)]:
+                        ('hk', get_hk_json), ('us', get_us_json),
+                        ('index', get_index_json)]:
             try:
                 data = fn()
                 with _cache_lock:
@@ -59,18 +64,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title='MarketView', version='1.5.1', docs_url=None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
-NO_CACHE = {}  # 不禁用客户端缓存，让浏览器自由缓存
-
 def _ok_json_str(json_str):
-    return JSONResponse({'data': json.loads(json_str), 'time': datetime.now().strftime('%H:%M:%S')}, headers=NO_CACHE)
+    return JSONResponse({'data': json.loads(json_str), 'time': datetime.now().strftime('%H:%M:%S')})
 
 @app.get('/api/health')
 def health():
     return {'status': 'ok'}
 
 @app.get('/api/crypto/status')
-async def crypto_status(proxy: str = None):
-    return await crypto_status(proxy)
+async def crypto_status_endpoint(proxy: str = None):
+    return JSONResponse(await crypto_status(proxy))
 
 @app.get('/api/crypto/spot')
 async def crypto_spot():

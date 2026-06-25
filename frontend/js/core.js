@@ -48,7 +48,6 @@ window.MV = (function() {
   let updateTime = '', sortKey = null, sortDir = 1;
   let loadedCount = 0, totalMods = 0, cryptoOK = false;
   let latestUpdate = 0, loadStart = Date.now();
-  let totalModules = MODULES.length;
   let firstVisit = !sessionStorage.getItem('mv_visited');
 
   // ─── 渲染表格 ───

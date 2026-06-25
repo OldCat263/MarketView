@@ -2,7 +2,6 @@
 from . import crypto, stock, etf, hk, us, index_mod
 
 # ── 加密货币 ──
-detect_crypto = crypto.detect
 crypto_status = crypto.status
 get_crypto_json = crypto.get_json
 
