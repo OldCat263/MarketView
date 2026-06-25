@@ -2,7 +2,13 @@
 
 **Base URL**: `https://oldcat.site`
 **响应格式**: `{"data": ..., "time": "HH:MM:SS"}`
-**缓存策略**: 服务端分片内存缓存 + 滚动daemon刷新 + SSE实时推送；客户端 sessionStorage 10s
+**缓存策略**: 服务端分片内存缓存 + 滚动daemon刷新 + SSE实时推送（含 3s 心跳）；客户端 sessionStorage 15s
+
+> **设计师注意**：修改任何接口前，请先读 [设计师入门指南 §0 同步更新规则](./设计师入门指南.md)，按流程更新本文档 + CLAUDE.md + 开发手册。
+>
+> **执行者注意**：实施任何接口前，请先读 [执行者入门指南 §0 同步更新规则](./执行者入门指南.md) + §8 验收清单。
+>
+> **审批员注意**：复审接口改动时，请按 [审批员入门指南 §6 复审清单 §1.2 字段一致性](./审批员入门指南.md) 检查字段是否与代码一致。
 
 ---
 
@@ -117,14 +123,14 @@ GET /api/etf/spot
 
 ---
 
-## 5. 港股 — 东财/sina
+## 5. 港股 — 腾讯/东财/新浪
 
 ```
 GET /api/hk/spot
 ```
 
-**数据源**: 东财 → 新浪
-**缓存**: 服务端分片缓存 + 滚动刷新
+**数据源**: 腾讯 → 东财 → 新浪
+**缓存**: 服务端分片缓存 + 滚动刷新（首次 ~2 分钟 AkShare 冷启，后续秒级）
 
 | 响应字段 | 类型 | 说明 |
 |----------|------|------|
@@ -198,6 +204,8 @@ GET /api/index/spot
 
 ## 8. SSE 实时推送
 
+### 8.1 行情实时推送
+
 ```
 GET /api/stream/{module}
 ```
@@ -206,12 +214,75 @@ GET /api/stream/{module}
 
 **说明**: Server-Sent Events，每个分片刷新时推送增量数据。前端 EventSource 连接后自动接收 `data:` 事件，包含 `shard`（分片编号）、`data`（行列表）、`ts`（时间戳）。
 
+**V1.6.0.6 心跳**（关键）: 后端每 3s 推一条 `{"shard": -1, "data": [], "ts": ...}` 作为心跳，客户端用其刷新 `fetchTime`，维持 liveStatus 绿点。即使数据没变化，绿点也不会变红。
+
 **示例**:
 ```
 data: {"shard": 0, "data": [{"代码":"sh000001","名称":"上证指数",...}], "ts": 1719345678.123}
+data: {"shard": -1, "data": [], "ts": 1719345681.456}
 ```
 
 **注意**: 每模块独立 SSE 通道，连接断开会自动重建（前端 EventSource 内置重连）。
+
+### 8.2 K线实时推送（V1.7.0）
+
+```
+GET /api/stream/kline/{module}/{code}?period=1d
+```
+
+**支持**: 6 模块（stock/etf/hk/us/index/crypto）+ 8 周期（1m/5m/15m/30m/60m/1d/1w/1M）
+
+**说明**: 每 5s 推一次当前最新 K线（仅 1 根），前端 ECharts 更新最后一根。
+
+**示例**:
+```
+data: {"shard": -1, "data": [["2026-06-26", 1680, 1675, 1665, 1685, 12345, 2067890]], "ts": 1719345681.456}
+```
+
+---
+
+## 9. K线数据（V1.7.0）
+
+```
+GET /api/kline/{module}/{code}?period=1d&count=750
+```
+
+| 参数 | 必须 | 默认 | 说明 |
+|------|------|------|------|
+| module | 是 | — | stock/etf/hk/us/index/crypto |
+| code | 是 | — | 股票代码（带市场前缀，如 sh600519 / usAAPL / BTCUSDT）|
+| period | 否 | 1d | 1m/5m/15m/30m/60m/1d/1w/1M |
+| count | 否 | 750 | 拉取根数（B 中等：日 K 3年 ≈ 750 根）|
+
+**数据源**:
+- A股/ETF/指数: 腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
+- 港股: 腾讯 `appstock/app/hfqkline/get`
+- 美股: 腾讯 `appstock/app/usfqkline/get`（us 前缀）
+- 加密: Binance `/api/v3/klines`
+
+**响应**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| code | string | 股票代码 |
+| name | string | 股票名称 |
+| module | string | 模块标识 |
+| period | string | 周期 |
+| data | array | K线数组 `[[date, o, c, l, h, v, amt], ...]` |
+| ma | object | MA5/10/20/60/120/250（纯 Python 计算）|
+| boll | object | BOLL(20/2) 的 UP/MID/LOW 三轨 |
+| macd | object | MACD(12/26/9) 的 DIF/DEA/HIST |
+| ts | float | 时间戳 |
+
+**指标说明**:
+- MA: 简单移动平均，前 N-1 个为 `null`
+- BOLL(20/2): MID=MA20, UP=MID+2*STDEV20, LOW=MID-2*STDEV20
+- MACD(12/26/9): DIF=EMA12-EMA26, DEA=EMA9(DIF), HIST=(DIF-DEA)*2
+
+**示例**:
+```bash
+curl 'https://oldcat.site/api/kline/stock/sh600519?period=1d&count=10'
+```
 
 ---
 
@@ -224,3 +295,17 @@ data: {"shard": 0, "data": [{"代码":"sh000001","名称":"上证指数",...}], 
 - 服务端重启后首次请求需等滚动线程预热分片（~1-8 分钟取决于模块），后续毫秒级响应
 - 美股首次启动从 AkShare 拉取代码列表（1 天缓存），预热需 ~8 分钟
 - 加密货币需配置 `CRYPTO_PROXY` 环境变量或自动扫描代理端口
+- **V1.6.0.6 起**: 行情 SSE 每 3s 心跳推 `shard: -1`，保证客户端 liveStatus 绿点不因数据静止而变红
+- **V1.7.0 起**: K线 API 走 `/api/kline/{module}/{code}`，实时推送走 `/api/stream/kline/{module}/{code}`（5s 间隔推最新 K线）
+
+---
+
+## 相关文档
+
+- 部署相关问题 → [部署文档](./部署文档.md)
+- 故障排查 → [故障排查](./故障排查.md)
+- 项目设计哲学 → [开发手册](./开发手册.md)
+- 项目状态 → [CLAUDE.md](../CLAUDE.md)
+- **设计师上手 / 设计稿模板** → [设计师入门指南](./设计师入门指南.md)
+- **执行者上手 / 回报模板** → [执行者入门指南](./执行者入门指南.md)
+- **审批员上手 / 标级模板** → [审批员入门指南](./审批员入门指南.md)

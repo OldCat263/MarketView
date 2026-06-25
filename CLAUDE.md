@@ -7,17 +7,27 @@
 ## 项目概览
 
 - **名称**：MarketView
-- **干什么**：一站式展示全球金融市场实时数据
-- **架构**：FastAPI 后端 + 单文件 HTML 前端 + 客户端 sessionStorage 缓存
+- **干什么**：一站式展示全球金融市场实时数据 + K线图
+- **架构**：FastAPI 后端 + 多文件 HTML 前端（HTML骨架+CSS+核心引擎+模块注册） + 客户端 sessionStorage 缓存
 - **数据源**：AkShare + 腾讯 qt.gtimg.cn + Binance + 新浪（全部免费公开 API，无需注册）
+- **实时机制**：分片滚动刷新 + SSE 推送 + 3s 心跳（V1.6.0.6）
+- **图表**：ECharts 5（K线/V1.7.0+）
+- **角色**：设计师 / 执行者 / 审批员 / 用户（四方协作流程详见 [开发手册 §十](./docs/开发手册.md)）
 
 ## 固定文件清单
 
 | 文件 | 职责 |
 |------|------|
 | `CLAUDE.md` | 📖 项目手册 |
+| `docs/开发手册.md` | 🎨 设计哲学总纲（设计者手册） |
+| `docs/设计师入门指南.md` | 👶 设计师 Onboarding（2.5h 上手 + 设计稿模板）|
+| `docs/执行者入门指南.md` | 🔨 执行者 Onboarding（2h 上手 + 回报模板）|
+| `docs/审批员入门指南.md` | 🔍 审批员 Onboarding（1.5h 上手 + 标级模板）|
+| `docs/API文档.md` | 🔌 接口定义 |
+| `docs/部署文档.md` | 🚀 部署指南（Nginx + systemd + SSL） |
+| `docs/故障排查.md` | 🛠️ 故障排查手册 |
 | `backend/main.py` | FastAPI 入口，分片缓存 + SSE推送 |
-| `backend/fetcher/` | 数据获取模块(7独立文件) |
+| `backend/fetcher/` | 数据获取模块（每模块独立文件，详见模块清单） |
 | `backend/requirements.txt` | Python 依赖 |
 | `frontend/index.html` | 前端入口 | 纯HTML骨架，加载CSS/JS模块 |
 | `frontend/css/main.css` | 样式 | 暗色主题，响应式 |
@@ -32,10 +42,11 @@
 | 1 | 🪙 加密货币 | Binance API（需代理，服务器无代理时显示未检测） | 全量实时 | ✅ |
 | 2 | 📈 A股 | 腾讯 qt.gtimg.cn → 东财 → 新浪 | 全量实时 | ✅ |
 | 3 | 📊 ETF | 东财 fund_etf_spot_em → 同花顺 | 全量实时 | ✅ |
-| 4 | 🌏 港股 | 东财 stock_hk_spot_em → 新浪 stock_hk_spot | 全量实时 | ✅ |
+| 4 | 🌏 港股 | 腾讯 → 东财 stock_hk_spot_em → 新浪 stock_hk_spot | 全量实时 | ✅ |
 | 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪 | 全量实时 | ✅ |
 | 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
-| 7 | 📰 新闻 | 预留 | — | 🚧 |
+| 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图（V1.7.0） | 全量实时 | 🔄 |
+| 8 | 📰 新闻 | 预留 | — | 🚧 |
 
 ## 数据源详解
 
@@ -44,21 +55,41 @@
 - 字段：代码、名称、最新价、涨跌幅、涨跌额、成交量、成交额、最高、最低、今开、昨收、**振幅、换手率、量比**
 - 自动回退：东财 → 新浪
 
+### 港股：腾讯 → 东财 → 新浪（V1.6.0.1 改）
+- 腾讯为主源（10 只/请求）
+- 东财 AkShare `stock_hk_spot_em` 冷启动 ~2 分钟
+- 新浪 `stock_hk_spot` 兜底
+- 多源 fallback 解决 RemoteDisconnected 导致 0 行
+
 ### 加密货币：Binance API
 - 端点：`api.binance.com/api/v3/ticker/24hr`
 - 自动扫描代理端口：7897/7890/10809/10808/1080/8118/8888
 - 用户也可手动设置 `CRYPTO_PROXY` 环境变量
 - 每次点击重新检测代理连通性
 
-### ETF/港股/美股/指数：AkShare 自动切换
+### ETF/美股/指数：AkShare 自动切换
 - 所有模块均含数据源缓存，首次找到可用源后直接复用
+- ETF：东财 fund_etf_spot_em → 同花顺
+- 美股：腾讯 qt.gtimg.cn（us 前缀，17209 条）→ 东财 → 新浪
+- 指数：东财 index_global_spot_em → 新浪（global 字段需海外网络，限流时为空）
+
+### K线（V1.7.0+）：腾讯 K线接口 + Binance Klines
+- A股/ETF/指数：腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
+- 港股：腾讯 `appstock/app/hfqkline/get`（hk 前缀）
+- 美股：腾讯 `appstock/app/usfqkline/get`（us 前缀）
+- 加密：Binance `/api/v3/klines`
+- 8 周期：1m/5m/15m/30m/60m/1d/1w/1M
+- 指标计算：纯 Python（MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)）
 
 ## 前端架构
-
-- **首页**：7 张卡片网格（3×3），首次访问显示进度条+加载时间
+- **首页**：8 张卡片网格（3×3），首次访问显示进度条+加载时间
 - **数据视图**：表格 + 搜索 + 排序 + 翻页（50条/页）
-- **缓存**：sessionStorage 10 秒 TTL，后台 10 秒静默刷新
+- **K线视图**（V1.7.0）：独立行情页（顶部导航"行情"入口） + ECharts 三联图（主+VOL+MACD）
+- **实时推送**：SSE (`/api/stream/{module}`) + 分片滚动刷新，单元格 diff 闪动
+- **心跳机制**（V1.6.0.6）：后端每 3s 推 `shard=-1` 空数据，前端刷新 `fetchTime` 维持绿点
+- **客户端缓存**：sessionStorage（前端状态恢复，**非实时数据源**，TTL 15s）
 - **模块隔离**：ST 对象独立存储每模块的 rows/cols/page/sort/search，互不干扰
+- **时间显示三件套**：globalStamp（UI 时钟，每秒跳）+ viewTime（数据时间，真实推送时更新）+ liveStatus（连接活性，绿/红）
 
 ## 🔴 铁律
 
@@ -70,19 +101,25 @@
 | 4 | 数据源仅限免费公开 API |
 | 5 | 做完记录版本历史 |
 | 6 | 每个模块完全独立封装 |
+| 7 | **每次新需求必须同步更新 [设计师入门指南 §0](./docs/设计师入门指南.md) 的同步更新规则** |
+| 8 | **设计师：改完代码必须审批执行者改的技术文档（见 [设计师入门指南 §7.1](./docs/设计师入门指南.md) 4 检查点）** |
 
-## 模块加载速度（服务器实测 2026-06-25）
+## 模块加载速度（V1.6.0.1 实测 2026-06-25 / V1.6.0.6 心跳已加）
 
-| 模块 | 耗时 | 数据量 | 数据源 |
-|------|------|--------|--------|
-| 🪙 加密货币 | 0.5s | 需代理 | Binance |
-| 📈 A股 | 51s | 5528 条 | 腾讯 qt.gtimg.cn |
-| 📊 ETF | 38s | 1516 条 | 东财 fund_etf_spot_em |
-| 🌏 港股 | 35s | 2773 条 | 新浪 stock_hk_spot |
-| 🇺🇸 美股 | 60s(超时) | 0 | 新浪超时 |
-| 📉 指数 | <1s | 562 条 | 新浪 index_spot_sina |
+| 模块 | 首启 | 稳态滚动 | 数据量 | 数据源 |
+|------|------|----------|--------|--------|
+| 🪙 加密货币 | 0.5s（需代理） | — | 0（无代理） | Binance |
+| 📈 A股 | 63ms（并发） | 3s diff 闪动 + 3s 心跳 | 5528 条 | 腾讯 qt.gtimg.cn |
+| 📊 ETF | ~5s | 5s diff 闪动 + 3s 心跳 | 1516 条 | 东财 fund_etf_spot_em |
+| 🌏 港股 | ~2min（AkShare 冷启） | 5s diff 闪动 + 3s 心跳 | 2773 条 | 腾讯 + 东财/新浪 fallback |
+| 🇺🇸 美股 | ~8min（首拉代码列表） | 5s diff 闪动 + 3s 心跳 | 17209 条 | 腾讯 qt.gtimg.cn（us 前缀）|
+| 📉 指数 | <1s | 3s diff 闪动 + 3s 心跳 | 562 条 | 新浪 index_spot_sina |
+| 📈 K线（V1.7.0） | 计划 < 2s | 5s 推最新 K线 | 750 根（日K） | 腾讯 K线 + Binance klines |
 
-> 首次加载约 51 秒（并行取最慢模块）。刷新秒开（sessionStorage）。
+> V1.6.0 起：分片缓存 + SSE 实时推送，浏览器侧看到的是**持续跳动**的实时行情，不再是 10s 静默刷新。
+> V1.6.0.6 起：每 3s 心跳维持客户端 liveStatus 绿点（即使数据静止也不变红）。
+> US 首次 ~8min 是 `_load_us_codes()` 下载 17636 条代码的一次性成本，后续秒级。
+> HK 首次 ~2min 是 AkShare `stock_hk_spot()` 冷启动一次成本，后续秒级。
 
 ## 审计流程
 
@@ -100,9 +137,20 @@
 - [ ] 数据源自动切换逻辑是否生效（检查服务日志）
 
 ### 3. 实时性检查
+- [ ] SSE 推送是否在 3~5s 内更新（按模块分片周期）
+- [ ] **3s 心跳**（V1.6.0.6）是否持续收到 `shard:-1` 数据
 - [ ] 数据时间戳是否在最近交易时段内
 - [ ] 非交易时段数据是否为最近交易日收盘数据
-- [ ] 后台静默刷新（10 秒）是否正常更新缓存
+- [ ] 浏览器开发者工具 Network → EventStream 是否持续收到 `data:` 行
+- [ ] viewTime 仅在真实数据推送时更新（不依赖心跳）
+- [ ] liveStatus 由 fetchTime 算 ago（心跳维持绿点，>15s 变红）
+
+### 3.5 K线专项检查（V1.7.0+）
+- [ ] 6 模块各跑一次 `/api/kline/{m}/{code}`，data 数组非空
+- [ ] 8 周期切换都正常返回（1m/5m/15m/30m/60m/1d/1w/1M）
+- [ ] MA/BOLL/MACD 指标计算结果正确（对账测试）
+- [ ] ECharts 三联图渲染正常（主图 + VOL + MACD）
+- [ ] K线 SSE 5s 推最新一根，ECharts 实时更新最后一根
 
 ### 4. 模块隔离检查
 - [ ] 切换模块后数据是否独立，不串台
@@ -126,13 +174,29 @@ curl -s http://localhost:8000/api/etf/spot | python -c "import sys,json; print(l
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --workers 4
+
+# V1.6.0 起必须用 --workers 1（不要用 4）
+# 原因：SSE 长连接 + 免费 API 限流，4 worker 会导致：
+#   1. SSE 路由只在 1/4 worker 上生效，连接被路由到其他 worker 会立即断
+#   2. 4 倍数据源拉取，免费 API 容易被封
+#   3. 单进程足够支撑 6 模块 6 万+条数据并发
+uvicorn main:app --workers 1
 # 浏览器打开 frontend/index.html
 ```
 
-## 待清理清单（V1.6.0.1 已全部完成 ✅）
+## 已完成清单（按版本）
 
-### A. 垃圾文件（12 个，建议删除）
+### V1.6.0.6 收尾清理（2026-06-26）
+
+| 类型 | 位置 | 处理 |
+|------|------|------|
+| 死代码删除 | `backend/main.py:37` | `_heartbeat_threads = {}` 未被读/写，daemon 线程无需追踪 → ✅ 删除 |
+| try/except 确认 | `backend/main.py:117-121` | 心跳启动有 try/except + print FAIL 日志 → ✅ 无需改 |
+| 心跳分支位置 | `frontend/js/core.js:217-221` | 已位于 onmessage 最顶部 → ✅ 无需改 |
+
+### V1.6.0.1 实施记录（已记录）
+
+#### A. 垃圾文件（12 个，已删除 ✅）
 
 | 文件 | 说明 |
 |------|------|
@@ -142,22 +206,37 @@ uvicorn main:app --workers 4
 | `etf_test.json` `stock_test.json` | 测试输出 |
 | `A股模块API测试报告.md` `ETF模块API测试报告.md` | 测试报告（速度已记入版本历史） |
 | `oldcat-realtime-upgrade.html` | 旧实时化方案展示页（Trae 生成，已被 V1.6.0 设计取代） |
+| `docs/V1.6.0-续做设计.md` | V1.6.0 设计稿（封版后删除，2026-06-26） |
 
-### B. 代码冗余（4 处，建议清理）
+#### B. 代码冗余（V1.6.0.1 清理 ✅）
 
 | 位置 | 问题 | 处理 |
 |------|------|------|
-| `backend/main.py:21` | `_cached_get(key, fetcher_fn)` 的 `fetcher_fn` 参数从未被调用 | 删参数 |
-| `backend/main.py:62` | `NO_CACHE = {}` 空字典当 headers 传等于没传，命名误导 | 删变量 |
-| `backend/fetcher/crypto.py:8-15` | `detect()` 与 `status()` 功能重叠，仅 print 不设 `_found_proxy` | 合并进 `status()` |
-| `frontend/js/core.js:51` | `let totalModules` 定义后从未使用（preloadAll 用 `totalMods`） | 删死变量 |
+| `backend/main.py:21` | `_cached_get(key, fetcher_fn)` 的 `fetcher_fn` 参数从未被调用 | ✅ 删参数 |
+| `backend/main.py:62` | `NO_CACHE = {}` 空字典当 headers 传等于没传，命名误导 | ✅ 删变量 |
+| `backend/fetcher/crypto.py:8-15` | `detect()` 与 `status()` 功能重叠，仅 print 不设 `_found_proxy` | ✅ 合并进 `status()` |
+| `frontend/js/core.js:51` | `let totalModules` 定义后从未使用（preloadAll 用 `totalMods`） | ✅ 删死变量 |
 
-### C. 文档过时（V1.6.0.1 已同步更新 ✅）
+#### C. 文档同步（V1.6.0.1 + 2026-06-26 大更新 ✅）
 
-| 文件 | 过时点 | 状态 |
-|------|--------|------|
-| `docs/API文档.md` | base URL、美股源（改腾讯）、缓存策略描述、SSE端点 | ✅ 已更新 |
-| `CLAUDE.md` 固定文件清单 | `fetcher.py`→`fetcher/` 目录、`index.html`→`core.js+7模块+main.css` | ✅ 已更新 |
+| 文件 | 时机 | 状态 |
+|------|------|------|
+| `docs/API文档.md` | V1.6.0.1 + 2026-06-26 (V1.6.0.6/V1.7.0) | ✅ 已更新 7 处 |
+| `CLAUDE.md` | 2026-06-26 全量更新 | ✅ 已更新 7 处 |
+| `docs/开发手册.md` | 2026-06-26 新建 | ✅ 设计哲学沉淀 |
+| `docs/设计师入门指南.md` | 2026-06-26 新建 | ✅ Onboarding 2.5h + 模板 |
+| `docs/执行者入门指南.md` | 2026-06-26 新建 | ✅ Onboarding 2h + 回报模板 |
+| `docs/审批员入门指南.md` | 2026-06-26 新建 | ✅ Onboarding 1.5h + 标级模板 |
+| `docs/{设计师,执行者,审批员}入门指南.md` | 2026-06-26 加 §0.1 分工表 | ✅ 技术文档执行者改 / 设计文档设计师改 |
+
+### V1.6.0.2~V1.6.0.5 viewTime 系列修复（已封版）
+
+| 版本 | 关键改动 |
+|------|----------|
+| V1.6.0.2 | viewTime 挪出 `if(changed)` 块（方案 C 错误 + 方案 A 撤销） |
+| V1.6.0.3 | viewTime 改由 `setInterval(refreshStamp,1000)` 驱动（与 SSE 解耦）|
+| V1.6.0.4 | viewTime 更新从 `if (s && s.fetchTime)` 块内挪出（切模块卡死修复）|
+| V1.6.0.5 | 3 处 ST 重建补 `fetchTime`（doSort/openModule/goPage，灯变红修复）|
 
 ## 版本历史
 
@@ -175,3 +254,10 @@ uvicorn main:app --workers 4
 | V1.5.1 | 2026-06-25 | 统一网格容器 |
 | V1.6.0 | 2026-06-25 | **P0全部解除**：SSE推送+分片缓存+滚动刷新+diff闪动；美股腾讯源(us前缀,17209条)；crypto代理诊断；指数global限流说明 |
 | V1.6.0.1 | 2026-06-25 | **回归修复**：预热键匹配_shards_→首次启动即生效；HK roller多源fallback→2773条恢复；index_{china,global}_结构保留；启动不再阻塞_crypto_status_fire-and-forget；except:pass全部改日志；API文档同步 |
+| V1.6.0.2 | 2026-06-25 | **viewTime 第一版**（方案 C 错误 + 方案 A 撤销）：viewTime 挪出 if(changed) — 实际无效，因后端不推空分片 |
+| V1.6.0.3 | 2026-06-25 | **viewTime 真正修复**：viewTime 改由 setInterval(refreshStamp,1000) 驱动（客户端时间），与 SSE 推送完全解耦。设计修正：viewTime=UI时钟（每秒跳），liveStatus=数据新鲜度（SSE推时"实时"绿点，无推时"Xs 前"） |
+| V1.6.0.4 | 2026-06-26 | **viewTime 切模块卡死修复**：refreshStamp 的 viewTime 更新从 `if (s && s.fetchTime)` 块内挪出，确保即使 ST[tab] 状态异常也每 1s 跳一次。 |
+| V1.6.0.5 | 2026-06-26 | **3 处 ST 重建补 fetchTime**：doSort/openModule/goPage 重建 ST[tab] 时都漏了 fetchTime，导致 liveStatus 变红(--)。3 处都加 `fetchTime: ST[tab]?.fetchTime || Date.now()` |
+| V1.6.0.6 | 2026-06-26 | **A+D 心跳推送 + viewTime 数据驱动**：后端 A(所有分片 interval 内必推) + D(每 3s 心跳推 `shard=-1`)；前端 viewTime 只在真实数据推送时更新（稳定显示数据时间）、liveStatus 由 fetchTime 算 ago（心跳维持绿点），两指标解耦。解决"19秒前"红点 + 避免"绿点闪但时间不动"的错觉 |
+| V1.6.0.7 | 2026-06-26 | **文档优化 10 项**：① 三份协作流程图统一为 10 步（设计师/执行者/审批员口径一致）② 加 V1.7.0 5 步分开发审批策略（Step 1~4 轻量验收 + Step 5 完整复审）③ 审批员 §6.2 加 K线专项实测（V1.7.0+）④ 审批员 §3 必读清单加部署文档 ⑤ 铁律数字 6+1=7 改为 6+2=8 ⑥ 加"标级=标 P0/P1/P2"术语对齐说明 ⑦ 复审不通过的责任划分表 ⑧ 失败回滚流程（git revert）⑨ CLAUDE.md 项目概览加"角色"行 ⑩ 复审时效 24h |
+| V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化，**Step 1 进行中**）：独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持（A股/ETF/港股/美股/指数/加密）+ 8周期（1m/5m/15m/30m/60m/日/周/月）+ MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9) + 5s SSE 推最新K线。VOL 副图必开、MACD 默认关。数据量中等（日K 3年/周K 5年/月K 10年/分钟 5天）。指标纯 Python 计算（不引 pandas） |
