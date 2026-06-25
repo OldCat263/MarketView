@@ -48,7 +48,9 @@ def _from_tencent_threaded(codes, workers=11):
     result = []
     def fetch_batch(batch):
         try:
-            url = 'https://qt.gtimg.cn/q=' + ','.join(batch)
+            # 腾讯需要 us 前缀 + 去后缀（AAPL.OQ → usAAPL）
+            codes_clean = [str(c).replace('.OQ','').replace('.N','').replace('.AM','') for c in batch]
+            url = 'https://qt.gtimg.cn/q=' + ','.join('us' + c for c in codes_clean)
             resp = httpx.get(url, timeout=30)
             return [r for r in (_parse_tencent_us(l) for l in resp.text.split('\n')) if r]
         except Exception: return []
