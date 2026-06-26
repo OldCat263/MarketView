@@ -50,6 +50,29 @@ window.MV.Kline = (function() {
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
   var _resizeHandler = null;
 
+  // ─── 交易时段判断（北京时间 UTC+8）───
+  function isTradingHours(module) {
+    if (module === 'crypto') return true;  // 24×7
+    var now = new Date();
+    var day = now.getUTCDay();       // 0=Sun, 1=Mon, …
+    var h = now.getUTCHours() + 8;   // 北京时间
+    if (h >= 24) { h -= 24; day = (day + 1) % 7; }
+    if (h < 0) { h += 24; day = (day - 1 + 7) % 7; }
+    var isWeekday = day >= 1 && day <= 5;
+    if (!isWeekday) return false;
+    var m = now.getUTCMinutes();
+    var t = h * 100 + m;  // HHMM 格式
+    if (module === 'us') {
+      // 美股夏令时：周一~五 21:30 ~ 次日 4:00（北京时间）
+      return t >= 2130 || t < 400;
+    }
+    if (module === 'hk') {
+      return t >= 930 && t < 1600;
+    }
+    // stock/etf/index: 周一~五 9:30-15:00
+    return t >= 930 && t < 1500;
+  }
+
   // ─── 数据转换：API [date, open, close, high, low, vol, amt] → ECharts candlestick [o, c, l, h] ───
   function toCandlestick(rows) {
     var result = [];
@@ -290,9 +313,33 @@ window.MV.Kline = (function() {
   }
 
   // ─── 加载数据 ───
-  async function loadData() {
+  // force=true 时跳过缓存（手动切周期/代码）
+  async function loadData(force) {
     var info = KL_NAMES[currentModule];
     if (!info) return;
+    var cacheKey = 'kl_' + currentModule + '_' + info.code + '_' + currentPeriod;
+
+    // ── 读缓存 ──
+    if (!force) {
+      // 复用 core.js cacheGet 格式：sessionStorage key = 'mv_' + cacheKey
+      try {
+        var raw = sessionStorage.getItem('mv_' + cacheKey);
+        if (raw) {
+          var cached = JSON.parse(raw);
+          var age = Date.now() - cached.ts;
+          // 交易时段 TTL=60s，非交易时段无限
+          var maxAge = isTradingHours(currentModule) ? 60000 : Infinity;
+          if (age < maxAge) {
+            lastResp = cached.data;
+            document.getElementById('klineTitle').textContent = info.name + ' (' + info.code + ')';
+            render(cached.data);
+            return;
+          }
+        }
+      } catch(e) {}
+    }
+
+    // ── fetch 数据 ──
     var url = MV.API + '/api/kline/' + currentModule + '/' + info.code +
               '?period=' + currentPeriod + '&count=750';
     try {
@@ -300,6 +347,8 @@ window.MV.Kline = (function() {
       if (resp.error) { console.warn('Kline load error:', resp.error); return; }
       lastResp = resp;
       document.getElementById('klineTitle').textContent = info.name + ' (' + info.code + ')';
+      // 写缓存（复用 core.js cacheSet 格式：{data, ts} 存在 'mv_' + key）
+      MV.cacheSet(cacheKey, resp);
       render(resp);
     } catch (e) {
       console.warn('Kline fetch failed:', e);
@@ -365,7 +414,7 @@ window.MV.Kline = (function() {
   // ─── 周期切换 ───
   function switchPeriod() {
     currentPeriod = document.getElementById('klinePeriod').value;
-    loadData();
+    loadData(true);  // 手动切周期 → 跳过缓存
   }
 
   // ─── 代码切换（P2-3: 下拉选 6 模块默认代码）───
@@ -373,7 +422,7 @@ window.MV.Kline = (function() {
     var sel = document.getElementById('klineCode');
     if (sel && sel.value) {
       currentModule = sel.value;
-      loadData();
+      loadData(true);  // 手动切代码 → 跳过缓存
     }
   }
 
