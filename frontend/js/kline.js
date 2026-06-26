@@ -29,7 +29,7 @@ window.MV.Kline = (function() {
     // MA 配色（附录 MA 配色表）
     ma5:    '#f59e0b',   // gold
     ma10:   '#3b82f6',   // blue
-    ma20:   '#a855f7',   // purple
+    ma20:   '#8b5cf6',   // purple
     ma60:   '#06b6d4',   // cyan
     ma120:  '#22c55e',   // green
     ma250:  '#ef4444',   // red
@@ -50,7 +50,7 @@ window.MV.Kline = (function() {
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
   var _resizeHandler = null;
 
-  // ─── 数据转换：API [date, oM c, l, h, v, amt] → ECharts candlestick [o, c, l, h] ───
+  // ─── 数据转换：API [date, open, close, high, low, vol, amt] → ECharts candlestick [o, c, l, h] ───
   function toCandlestick(rows) {
     var result = [];
     for (var i = 0; i < rows.length; i++) {
@@ -75,7 +75,7 @@ window.MV.Kline = (function() {
     });
 
     // MACD HIST 涨跌染色
-    var macdHist = macd.hist || [];
+    var macdHist = macd.HIST || [];
     var histColors = macdHist.map(function(v) {
       return v >= 0 ? C.up : C.down;
     });
@@ -174,12 +174,12 @@ window.MV.Kline = (function() {
 
     // ── 主图：MA 线 ──
     var maDefs = [
-      { key: 'ma5',   name: 'MA5',   color: C.ma5,   lineWidth: 1 },
-      { key: 'ma10',  name: 'MA10',  color: C.ma10,  lineWidth: 1 },
-      { key: 'ma20',  name: 'MA20',  color: C.ma20,  lineWidth: 1 },
-      { key: 'ma60',  name: 'MA60',  color: C.ma60,  lineWidth: 1 },
-      { key: 'ma120', name: 'MA120', color: C.ma120, lineWidth: 1 },
-      { key: 'ma250', name: 'MA250', color: C.ma250, lineWidth: 1 },
+      { key: 'MA5',   name: 'MA5',   color: C.ma5,   lineWidth: 1 },
+      { key: 'MA10',  name: 'MA10',  color: C.ma10,  lineWidth: 1 },
+      { key: 'MA20',  name: 'MA20',  color: C.ma20,  lineWidth: 1 },
+      { key: 'MA60',  name: 'MA60',  color: C.ma60,  lineWidth: 1 },
+      { key: 'MA120', name: 'MA120', color: C.ma120, lineWidth: 1 },
+      { key: 'MA250', name: 'MA250', color: C.ma250, lineWidth: 1 },
     ];
     maDefs.forEach(function(d) {
       if (ma[d.key] && ma[d.key].length) {
@@ -193,24 +193,24 @@ window.MV.Kline = (function() {
     });
 
     // ── 主图：BOLL 线（虚线）──
-    if (boll.up && boll.up.length) {
+    if (boll.UPPER && boll.UPPER.length) {
       series.push({
         name: 'BOLL-UP', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-        data: boll.up, symbol: 'none',
+        data: boll.UPPER, symbol: 'none',
         lineStyle: { color: C.bollUp, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
     }
-    if (boll.mid && boll.mid.length) {
+    if (boll.MID && boll.MID.length) {
       series.push({
         name: 'BOLL-MID', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-        data: boll.mid, symbol: 'none',
+        data: boll.MID, symbol: 'none',
         lineStyle: { color: C.bollMid, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
     }
-    if (boll.low && boll.low.length) {
+    if (boll.LOWER && boll.LOWER.length) {
       series.push({
         name: 'BOLL-LOW', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-        data: boll.low, symbol: 'none',
+        data: boll.LOWER, symbol: 'none',
         lineStyle: { color: C.bollLow, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
     }
@@ -227,17 +227,17 @@ window.MV.Kline = (function() {
 
     // ── MACD 副图（仅 showMACD 时）──
     if (showMACD) {
-      if (macd.dif && macd.dif.length) {
+      if (macd.DIF && macd.DIF.length) {
         series.push({
           name: 'DIF', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
-          data: macd.dif, symbol: 'none',
+          data: macd.DIF, symbol: 'none',
           lineStyle: { color: C.dif, width: 1 },
         });
       }
-      if (macd.dea && macd.dea.length) {
+      if (macd.DEA && macd.DEA.length) {
         series.push({
           name: 'DEA', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
-          data: macd.dea, symbol: 'none',
+          data: macd.DEA, symbol: 'none',
           lineStyle: { color: C.dea, width: 1 },
         });
       }
