@@ -8,9 +8,10 @@ V1.6.0.15: Windows GBK 终端兼容（sys.stdout.reconfigure utf-8）
 
 用法：
   python mv_validate.py all      # 全部检查
-  python mv_validate.py modules  # 6 模块数据量
-  python mv_validate.py sse      # 6 模块 SSE 心跳
+  python mv_validate.py modules  # 7 模块数据量
+  python mv_validate.py sse      # 7 模块 SSE 心跳
   python mv_validate.py kline    # V1.7.0+ K线接口
+  python mv_validate.py news     # V1.8.0+ 新闻接口
   python mv_validate.py rules    # 铁律自检
   python mv_validate.py diff     # 核心文件 diff
 """
@@ -42,7 +43,7 @@ PROJECT_ROOT = os.path.dirname(
     )
 )
 
-MODULES = ['stock', 'etf', 'hk', 'us', 'index', 'crypto']
+MODULES = ['stock', 'etf', 'hk', 'us', 'index', 'crypto', 'news']
 CORE_FILES = [
     'backend/main.py',
     'frontend/js/core.js',
@@ -166,6 +167,36 @@ def check_kline():
     print(f'\n  汇总: {total_ok}/{len(KLINE_SAMPLES)-1} 模块 K线完整（crypto 单独计）')
 
 
+def check_news():
+    hr('3.5. 新闻接口检查（V1.8.0+）')
+    data = fetch_json(f'{BASE_URL}/api/news/spot')
+    if '_error' in data:
+        print(f'  ❌ 新闻 REST 连接失败: {data["_error"]}')
+        return
+    rows = data.get('data', [])
+    cnt = len(rows) if isinstance(rows, list) else 0
+    fields_ok = False
+    if cnt > 0:
+        first = rows[0]
+        fields_ok = all(k in first for k in ('datetime', 'content', 'source'))
+    if cnt > 0 and fields_ok:
+        print(f'  ✅ 新闻 REST  {cnt:>4} 条  datetime+content+source ✓')
+    elif cnt > 0:
+        print(f'  ⚠️  新闻 REST  {cnt:>4} 条  字段不完整: {list(first.keys()) if rows else "N/A"}')
+    else:
+        print(f'  ⚠️  新闻 REST  {cnt:>4} 条  - 可能无新闻或数据源异常')
+    # SSE
+    lines = read_sse_lines(f'{BASE_URL}/api/stream/news', timeout=8, max_lines=10)
+    if lines and lines[0].startswith('_error'):
+        print(f'  ❌ 新闻 SSE  {lines[0]}')
+        return
+    data_lines = [l for l in lines if l.startswith('data:')]
+    if data_lines:
+        print(f'  ✅ 新闻 SSE  {len(data_lines)} 条消息')
+    else:
+        print(f'  ⚠️  新闻 SSE  无 data 消息（60s 间隔可能还没到）')
+
+
 def check_rules():
     hr('4. 铁律自检')
 
@@ -250,12 +281,13 @@ def main():
         'modules': [check_modules],
         'sse': [check_sse],
         'kline': [check_kline],
+        'news': [check_news],
         'rules': [check_rules],
         'diff': [check_rules],
-        'all': [check_modules, check_sse, check_kline, check_rules],
+        'all': [check_modules, check_sse, check_kline, check_news, check_rules],
     }
     if arg not in actions:
-        print(f'用法: {sys.argv[0]} [all|modules|sse|kline|rules|diff]')
+        print(f'用法: {sys.argv[0]} [all|modules|sse|kline|news|rules|diff]')
         sys.exit(1)
     for fn in actions[arg]:
         try:
