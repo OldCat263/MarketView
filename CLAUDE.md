@@ -32,7 +32,7 @@
 | `frontend/index.html` | 前端入口 | 纯HTML骨架，加载CSS/JS模块 |
 | `frontend/css/main.css` | 样式 | 暗色主题，响应式 |
 | `frontend/js/core.js` | 核心引擎 | 状态管理/渲染/SSE/模块切换 |
-| `frontend/js/modules/*.js` | 7模块 | 每模块独立注册 |
+| `frontend/js/modules/*.js` | 8模块 | 每模块独立注册 |
 | `chanlun/` | 参考资料（只读） |
 | `.trae/skills/` | ⭐ 4 个 AI Skill（designer/executor/reviewer/validator），按角色触发节省 token |
 
@@ -47,7 +47,7 @@
 | 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪 | 全量实时 | ✅ |
 | 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
 | 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图 + 分时图 + K线 SSE 5s 实时推送（V1.7.0 Step 1+2 ✅ / Step 3 ✅ / Step 4 ✅ / Step 4.5 ✅ / Step 5 ✅） | 全量实时 | ✅ |
-| 8 | 📰 新闻 | 预留 | — | 🚧 |
+| 8 | 📰 新闻 | AKShare js_news → 金十数据（V1.8.0+，60s 刷新，卡片流渲染） | 全量实时 | ✅ |
 
 ## 数据源详解
 
@@ -67,6 +67,12 @@
 - 自动扫描代理端口：7897/7890/10809/10808/1080/8118/8888
 - 用户也可手动设置 `CRYPTO_PROXY` 环境变量
 - 每次点击重新检测代理连通性
+
+### 新闻：AKShare js_news → 金十数据（V1.8.0+）
+- AKShare `js_news(indicator='最新资讯')` 拉取金十数据最近 4 小时实时财经新闻
+- 返回 datetime（发布时间）+ content（内容）+ source（固定"金十数据"）
+- 60s 低频刷新防限流，异常返回空数组不崩主流程
+- 前端卡片流渲染，时间倒序，搜索过滤
 
 ### ETF/美股/指数：AkShare 自动切换
 - 所有模块均含数据源缓存，首次找到可用源后直接复用
@@ -118,6 +124,7 @@
 | 🇺🇸 美股 | ~8min（首拉代码列表） | 5s diff 闪动 + 3s 心跳 | 17209 条 | 腾讯 qt.gtimg.cn（us 前缀）|
 | 📉 指数 | <1s | 3s diff 闪动 + 3s 心跳 | 562 条 | 新浪 index_spot_sina |
 | 📈 K线（V1.7.0） | 计划 < 2s | 5s 推最新 K线 | 750 根（日K） | 腾讯 K线 + Binance klines |
+| 📰 新闻（V1.8.0） | ~2s（AKShare 同步爬） | 60s 推增量 | 50~200 条（4h 窗口） | AKShare js_news → 金十数据 |
 
 > V1.6.0 起：分片缓存 + SSE 实时推送，浏览器侧看到的是**持续跳动**的实时行情，不再是 10s 静默刷新。
 > V1.6.0.6 起：每 3s 心跳维持客户端 liveStatus 绿点（即使数据静止也不变红）。
@@ -149,7 +156,14 @@
 - [ ] **viewTime 在 openModule 切模块瞬间不显示数据时间**（V1.6.0.16 删 openModule 内的 viewTime=fetchTime 赋值）
 - [ ] **liveStatus 由 fetchTime 算 ago**（心跳维持绿点，>15s 显式"离线"红点，V1.6.0.8）
 
-### 3.5 K线专项检查（V1.7.0+）
+### 3.5 新闻专项检查（V1.8.0+）
+- [ ] `/api/news/spot` data 数组非空，datetime/content/source 字段完整
+- [ ] `/api/stream/news` SSE 连接正常（60s 间隔推送）
+- [ ] 卡片流渲染正常（时间倒序、搜索过滤）
+- [ ] 新闻面板与表格面板 DOM 不串台
+- [ ] 60s 内新新闻自动出现（SSE 推送）
+
+### 3.6 K线专项检查（V1.7.0+）
 - [ ] 6 模块各跑一次 `/api/kline/{m}/{code}`，data 数组非空
 - [ ] 8 周期切换都正常返回（1m/5m/15m/30m/60m/1d/1w/1M）
 - [ ] MA/BOLL/MACD 指标计算结果正确（对账测试）
@@ -176,6 +190,7 @@
 # 快速验证命令
 cd backend && python -c "from main import app; import fetcher; print('OK')"
 curl -s http://localhost:8000/api/etf/spot | python -c "import sys,json; print(len(json.load(sys.stdin)['data']),'ETF')"
+curl -s http://localhost:8000/api/news/spot | python -c "import sys,json; print(len(json.load(sys.stdin)['data']),'新闻')"
 ```
 
 ## 如何运行
@@ -300,7 +315,8 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.6.0.15 | 2026-06-26 | **mv_validate Windows GBK 编码修复**（5350dee）：[mv_validate.py:24-28](./.trae/skills/mv-validator/scripts/mv_validate.py#L24-L28) 加 4 行 `sys.stdout/stderr.reconfigure(encoding='utf-8', errors='replace')`（hasattr 守卫兼容 Linux/旧 Python），emoji（✅/⚠️/❌）在 Windows PowerShell 5 终端正常输出。[故障排查 §7](./docs/故障排查.md#L401) 表格 +1 行"验收脚本崩溃"案例。SKILL.md 核对不需紧急修订（脚本自动 fix）。4 项验收全过：① py_compile ② PowerShell 5 跑 kline 不崩（关键） ③ all 4/4 全过 ④ hasattr 守卫无副作用。**附带遗留 P2**：subprocess capture_output pipe 层 GBK 解码警告，不影响验收结果输出，V1.6.0.16 计划 |
 | V1.6.0.16 | 2026-06-26 | **openModule 移除 viewTime 数据时间赋值**（35c2bf7）：[core.js:113-116](./frontend/js/core.js#L113-L116) 删 3 行 `vtEl.textContent = '更新 ' + new Date(ST[m].fetchTime).toLocaleTimeString()`，改为 2 行 `if (ST[m]) ST[m].fetchTime = Date.now()` 维持 liveStatus 绿点。[故障排查 §1.3](./docs/故障排查.md#L76) 补第 4 条根因"V1.6.0.15 之前 openModule 设 viewTime=数据时间"。[CLAUDE.md §3 实时性检查](./CLAUDE.md#L147) 补 1 行"viewTime 在 openModule 切模块瞬间不显示数据时间"。**viewTime 现在所有场景都显示客户端实时时间**：① 首页（V1.6.0.14 移出 if(tab)）② 切模块瞬间（V1.6.0.16 删 fetchTime 赋值）③ 数据静止（refreshStamp 永远每秒跳）④ liveStatus 仍正常（切模块即刷 fetchTime）。5 项验收全过：node -c / git diff -3+2 / 切模块=客户端时间 / 红点+老数据已消除 / mv_validate rules 3/3 |
 | V1.6.0.17 | 2026-06-26 | **V1.6.0.11~V1.6.0.16 文档同步 catch-up**（0e3a7ae）：11 文件（4 SKILL.md + CLAUDE.md + README.md + 5 docs）铁律 6→8 全文档对齐 + 4 份 Skill 必背补全 + 交叉引用 §x.y 精确化 + viewTime 三件套描述升级 + 项目状态更新。修复 API 文档 L271 data 列序 `l,h`→`h,l` 与实际后端对齐 |
-| V1.7.0 | 2026-06-26 | ✅ **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 ✅**（K线前端骨架 ECharts 接入 — index.html + main.css + kline.js，导航栏+容器+三联图+MA/BOLL/MACD+8周期+显隐矩阵+dispose重建策略，验收 5/5 K线接口全过）；**Step 4 ✅ 分钟K线数据源修复**（`_fetch_tencent_minute` — 换用 `ifzq.gtimg.cn` mkline 接口 [HTTPS 无 web 前缀]，解析路径 `data[code][m5]` 6 列格式，datetime YYYYMMDDHHmm→标准格式，amount 填 0；`_fetch_tencent` 加点判断自动分流分钟→mkline）；**Step 4.5 ✅ 分时图 + K线美化**（a296607~1c54de3，20 commits，UA 测试 8/8 全过，见下）；**Step 5 📋 设计补完（含文件:行号，待审批员复审）**（K线 SSE 5s 实时推送，见 [设计稿](./.claude/plans/dazzling-wiggling-fern.md)）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 分时图（价格折线+昨收虚线+VOL柱）+ 8周期切换 + 搜索（spot数据索引+6模块跨搜）+ ECharts 原生图例点击显隐 MA/BOLL。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |
+| V1.7.0 | 2026-06-26 | ✅ **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 ✅**（K线前端骨架 ECharts 接入 — index.html + main.css + kline.js，导航栏+容器+三联图+MA/BOLL/MACD+8周期+显隐矩阵+dispose重建策略，验收 5/5 K线接口全过）；**Step 4 ✅ 分钟K线数据源修复**（`_fetch_tencent_minute` — 换用 `ifzq.gtimg.cn` mkline 接口 [HTTPS 无 web 前缀]，解析路径 `data[code][m5]` 6 列格式，datetime YYYYMMDDHHmm→标准格式，amount 填 0；`_fetch_tencent` 加点判断自动分流分钟→mkline）；**Step 4.5 ✅ 分时图 + K线美化**（a296607~1c54de3，20 commits，UA 测试 8/8 全过，见下）；**Step 5 ✅ K线 SSE 5s 实时推送**（44040f5，见下）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 分时图（价格折线+昨收虚线+VOL柱）+ 8周期切换 + 搜索（spot数据索引+6模块跨搜）+ ECharts 原生图例点击显隐 MA/BOLL。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |
+| V1.8.0 | 2026-06-27 | 🚧 **新闻模块**（设计稿已出，审批通过，待实施）：**Step 1~5** 新增 `backend/fetcher/news.py`（AKShare js_news → 金十数据，60s 刷新），`frontend/js/modules/news.js` 从 placeholder 改为真实模块（卡片流渲染），`core.js` 加 `renderMode: 'news'` 委托渲染（~10 行），`main.py` 加 `/api/news/spot` REST + `/api/stream/news` SSE（60s），`main.css` 加新闻卡片样式。全量实时（最近 4h，50~200 条），铁律全合规。设计稿见 `.claude/plans/news-module-design.md` |
 
 ### V1.7.0 Step 4.5 UA 测试修复（2026-06-26~27，9 commits，8/8 全过）
 
@@ -318,9 +334,7 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 
 > **UA 测试结果**（2026-06-27，8 项全过）：A. dblclick 名称 ✅ B. 1m/5m→分时 ✅ C. ≥15m→K线 ✅ D. MACD 三联图+Y轴标注 ✅ E. 图例点击显隐MA/BOLL ✅ F. 首页↔行情切换 ✅ G. 缩放拖拽 ✅ H. 三图标注 ✅
 
-| V1.7.0 | 2026-06-27 | ✅ **Step 5 K线 SSE 5s 实时推送**：`stream_kline` SSE 端点（fire-and-forget asyncio.to_thread，hash 比较推 candle/heartbeat）+ `_connectKlineSSE()` 前端连接（onmessage 更新 lastResp.data 最后一根→render noAnimation / onerror 5s 重连）+ 动态校准定时器（1m→60s，其他→30s 全量重算 MA/BOLL/MACD）+ 8 生命周期覆盖（show/_hide/switchPeriod/selectCode/toggleMinute→分时关/→K线开）。API 文档 §9.1 K线 SSE 端点字段表 + 故障排查 §5.7+5.8 断连/返空案例 |
-
-### V1.7.0 Step 5 改动方案（2026-06-27，设计补完，已实施）
+### V1.7.0 Step 5 实施记录（2026-06-27，44040f5，已封版）
 
 > **港股 2min 预热 fire-and-forget**：港股 AkShare 冷启动 ~2min，已在 [`main.py:124-150`](#) `_initial_load()` 中以 daemon 线程 fire-and-forget 执行（不阻塞启动）。Step 5 K线 SSE handler 的 `asyncio.to_thread(fetch_fn, ...)` 同样 fire-and-forget：每次循环的 fetch 在线程池中执行，不阻塞 asyncio event loop。两处均无阻塞风险。
 
