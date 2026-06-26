@@ -385,8 +385,8 @@ window.MV.Kline = (function() {
       },
 
       grid: [
-        { left: '8%', right: '2%', top: '5%', height: '66%' },
-        { left: '8%', right: '2%', top: '77%', height: '18%' },
+        { left: '8%', right: '6%', top: '5%', height: '66%' },
+        { left: '8%', right: '6%', top: '77%', height: '18%' },
       ],
 
       xAxis: [
@@ -435,8 +435,8 @@ window.MV.Kline = (function() {
         silent: true,
         symbol: 'none',
         lineStyle: { color: C.gold, type: 'dashed', width: 0.8, opacity: 0.7 },
-        label: { show: true, position: 'end', color: C.gold, fontSize: 10,
-          formatter: '昨收 ' + yesterdayClose.toFixed(2) },
+        label: { show: true, position: 'start', color: C.gold, fontSize: 12,
+          fontWeight: 'bold', formatter: '昨收 ' + yesterdayClose.toFixed(2) },
         data: [{ yAxis: yesterdayClose }],
       };
       // 加一条透明参考线 series
