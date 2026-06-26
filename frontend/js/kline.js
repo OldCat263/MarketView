@@ -543,6 +543,7 @@ window.MV.Kline = (function() {
 
   // ─── 显隐 ───
   function show(module, code, name) {
+    if (!name && MV._klineIncoming) { name = MV._klineIncoming; MV._klineIncoming = null; }
     if (module) currentModule = module;
     // 显隐矩阵
     document.getElementById('grid').style.display = 'none';

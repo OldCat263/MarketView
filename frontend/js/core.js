@@ -336,8 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!td) return;
       var code = td.getAttribute('data-code');
       var nameTd = tr.querySelector('[data-field="名称"]');
-      var stockName = nameTd ? nameTd.textContent.trim() : '';
-      if (code) MV.goKline(MV.getTab(), code, stockName);
+      MV._klineIncoming = nameTd ? nameTd.textContent.trim() : '';
+      if (code) MV.goKline(MV.getTab(), code);
     });
   }
 });
