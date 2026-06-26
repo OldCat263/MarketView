@@ -603,7 +603,7 @@ window.MV.Kline = (function() {
           }
           if (minData && minData.data && minData.data.length > 0) {
             lastResp = minData;
-            document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
+            document.getElementById('klineTitle').innerHTML = (minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
             render(minData);
             return;
           }
@@ -613,7 +613,7 @@ window.MV.Kline = (function() {
       }
       // 降级：用缓存 K线数据
       if (lastResp) {
-        document.getElementById('klineTitle').textContent = (lastResp.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
+        document.getElementById('klineTitle').innerHTML = (lastResp.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
         render(lastResp);
       }
     } else {
@@ -675,7 +675,7 @@ window.MV.Kline = (function() {
         }
         if (minData && minData.data && minData.data.length > 0) {
           lastResp = minData;
-          document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
+          document.getElementById('klineTitle').innerHTML = (minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
           render(minData);
           return;
         }
@@ -684,7 +684,7 @@ window.MV.Kline = (function() {
       }
     }
     if (lastResp) {
-      document.getElementById('klineTitle').textContent = (lastResp.name || currentCode) + ' (' + currentCode + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
+      document.getElementById('klineTitle').innerHTML = (lastResp.name || currentCode) + ' (' + currentCode + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
       render(lastResp);
     }
   }
