@@ -42,7 +42,7 @@ def _fetch_tencent(code, period, count):
                 break
         if not raw:
             return []
-        # 腾讯返回按日期升序，无需反转
+        # 取末尾 count 根（最新数据），保持原始升序
         raw = raw[-count:] if len(raw) > count else raw
         rows = []
         for item in raw:
@@ -85,8 +85,9 @@ def _fetch_tencent_minute(code, period, count):
         raw = stock_data.get(tx_p, [])
         if not raw or not isinstance(raw, list) or len(raw) == 0:
             return []
-        # 腾讯返回按时间升序，无需反转
-        raw = raw[-count:] if len(raw) > count else raw
+        # 腾讯返回按时间降序，反转成升序
+        raw = raw[:count]
+        raw.reverse()
         rows = []
         for item in raw:
             if len(item) >= 6:
