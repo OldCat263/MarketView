@@ -47,8 +47,6 @@ window.MV.Kline = (function() {
   var currentModule = 'stock';
   var currentCode = '';
   var currentPeriod = '1d';
-  var showMA = true;         // 均线默认开
-  var showBOLL = true;       // 布林默认开
   var showMACD = false;      // MACD 默认关
   var showMinute = false;    // 分时图默认关
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
@@ -124,11 +122,20 @@ window.MV.Kline = (function() {
     var baseAxisLabel = { color: C.dim, fontSize: 11 };
     var baseSplitLine = { lineStyle: { color: C.border, type: 'dashed', opacity: 0.12 } };
 
+    var legendData = [];
+
     var option = {
       backgroundColor: C.bg,
       color: [C.up, C.down],
       animation: true,
       animationDuration: 300,
+
+      legend: {
+        data: legendData,
+        top: 2, left: 'center',
+        textStyle: { color: C.dim, fontSize: 10 },
+        itemWidth: 16, itemHeight: 2,
+      },
 
       tooltip: {
         trigger: 'axis',
@@ -231,6 +238,11 @@ window.MV.Kline = (function() {
       series: buildSeries(ohlc, volumes, volColors, ma, boll, macd, macdHist, histColors),
     };
 
+    // 收集图例数据
+    for (var si = 0; si < option.series.length; si++) {
+      legendData.push(option.series[si].name);
+    }
+
     return option;
   }
 
@@ -251,50 +263,46 @@ window.MV.Kline = (function() {
     });
 
     // ── 主图：MA 线 ──
-    if (showMA) {
-      var maDefs = [
-        { key: 'MA5',   name: 'MA5(5日)',     color: C.ma5,   lineWidth: 1 },
-        { key: 'MA10',  name: 'MA10(10日)',   color: C.ma10,  lineWidth: 1 },
-        { key: 'MA20',  name: 'MA20(20日)',   color: C.ma20,  lineWidth: 1 },
-        { key: 'MA60',  name: 'MA60(60日)',   color: C.ma60,  lineWidth: 1 },
-        { key: 'MA120', name: 'MA120(半年)',  color: C.ma120, lineWidth: 1 },
-        { key: 'MA250', name: 'MA250(年线)',  color: C.ma250, lineWidth: 1 },
-      ];
-      maDefs.forEach(function(d) {
-        if (ma[d.key] && ma[d.key].length) {
-          series.push({
-            name: d.name, type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-            data: ma[d.key],
-            symbol: 'none',
-            lineStyle: { color: d.color, width: d.lineWidth, opacity: 0.9 },
-          });
-        }
-      });
-    }
+    var maDefs = [
+      { key: 'MA5',   name: 'MA5(5日)',     color: C.ma5,   lineWidth: 1 },
+      { key: 'MA10',  name: 'MA10(10日)',   color: C.ma10,  lineWidth: 1 },
+      { key: 'MA20',  name: 'MA20(20日)',   color: C.ma20,  lineWidth: 1 },
+      { key: 'MA60',  name: 'MA60(60日)',   color: C.ma60,  lineWidth: 1 },
+      { key: 'MA120', name: 'MA120(半年)',  color: C.ma120, lineWidth: 1 },
+      { key: 'MA250', name: 'MA250(年线)',  color: C.ma250, lineWidth: 1 },
+    ];
+    maDefs.forEach(function(d) {
+      if (ma[d.key] && ma[d.key].length) {
+        series.push({
+          name: d.name, type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+          data: ma[d.key],
+          symbol: 'none',
+          lineStyle: { color: d.color, width: d.lineWidth, opacity: 0.9 },
+        });
+      }
+    });
 
     // ── 主图：BOLL 线（虚线）──
-    if (showBOLL) {
-      if (boll.UPPER && boll.UPPER.length) {
-        series.push({
-          name: '布林上轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-          data: boll.UPPER, symbol: 'none',
-          lineStyle: { color: C.bollUp, width: 1.2, type: 'dashed', opacity: 0.8 },
-        });
-      }
-      if (boll.MID && boll.MID.length) {
-        series.push({
-          name: '布林中轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-          data: boll.MID, symbol: 'none',
-          lineStyle: { color: C.bollMid, width: 1.2, type: 'dashed', opacity: 0.8 },
-        });
-      }
-      if (boll.LOWER && boll.LOWER.length) {
-        series.push({
-          name: '布林下轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-          data: boll.LOWER, symbol: 'none',
-          lineStyle: { color: C.bollLow, width: 1.2, type: 'dashed', opacity: 0.8 },
-        });
-      }
+    if (boll.UPPER && boll.UPPER.length) {
+      series.push({
+        name: '布林上轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        data: boll.UPPER, symbol: 'none',
+        lineStyle: { color: C.bollUp, width: 1.2, type: 'dashed', opacity: 0.8 },
+      });
+    }
+    if (boll.MID && boll.MID.length) {
+      series.push({
+        name: '布林中轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        data: boll.MID, symbol: 'none',
+        lineStyle: { color: C.bollMid, width: 1.2, type: 'dashed', opacity: 0.8 },
+      });
+    }
+    if (boll.LOWER && boll.LOWER.length) {
+      series.push({
+        name: '布林下轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        data: boll.LOWER, symbol: 'none',
+        lineStyle: { color: C.bollLow, width: 1.2, type: 'dashed', opacity: 0.8 },
+      });
     }
 
     // ── VOL 副图：成交量柱 ──
@@ -552,8 +560,6 @@ window.MV.Kline = (function() {
     var mb = document.getElementById('minuteBtn');
     if (mb) mb.textContent = '分时';
     // MACD 复选框
-    document.getElementById('maToggle').checked = showMA;
-    document.getElementById('bollToggle').checked = showBOLL;
     document.getElementById('macdToggle').checked = showMACD;
     // 清空搜索框
     var ks = document.getElementById('klineSearch');
@@ -575,14 +581,6 @@ window.MV.Kline = (function() {
   }
 
   // ─── MACD 切换 ───
-  function toggleMA() {
-    showMA = document.getElementById('maToggle').checked;
-    if (lastResp) render(lastResp);
-  }
-  function toggleBOLL() {
-    showBOLL = document.getElementById('bollToggle').checked;
-    if (lastResp) render(lastResp);
-  }
   function toggleMACD() {
     showMACD = document.getElementById('macdToggle').checked;
     if (lastResp) render(lastResp);
@@ -799,8 +797,6 @@ window.MV.Kline = (function() {
   return {
     show: show,
     _hide: _hide,
-    toggleMA: toggleMA,
-    toggleBOLL: toggleBOLL,
     toggleMACD: toggleMACD,
     toggleMinute: toggleMinute,
     switchPeriod: switchPeriod,
