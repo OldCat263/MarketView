@@ -34,9 +34,9 @@ window.MV.Kline = (function() {
     ma120:  '#22c55e',   // green
     ma250:  '#ef4444',   // red
     // BOLL
-    bollUp: '#787b86',
-    bollMid:'#f59e0b',
-    bollLow:'#787b86',
+    bollUp: '#f59e0b',
+    bollMid:'#8b5cf6',
+    bollLow:'#06b6d4',
     // MACD
     dif:    '#f59e0b',   // gold
     dea:    '#3b82f6',   // blue
@@ -219,8 +219,8 @@ window.MV.Kline = (function() {
       ],
 
       dataZoom: [
-        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 0, end: 10 },
-        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 0, end: 10,
+        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100 },
+        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100,
           height: 20, bottom: 2, borderColor: C.border,
           backgroundColor: C.card, fillerColor: 'rgba(245,158,11,.15)',
           handleStyle: { color: C.gold }, textStyle: { color: C.dim, fontSize: 10 } },
