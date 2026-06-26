@@ -512,9 +512,11 @@ window.MV.Kline = (function() {
     if (!chart) return;
     var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
     chart.setOption(option, { notMerge: true });
-    // 强制 zoom 到最近数据
+    // 强制 zoom 到最近数据（微延迟等渲染完成）
     if (!showMinute) {
-      chart.dispatchAction({ type: 'dataZoom', start: 90, end: 100 });
+      setTimeout(function() {
+        chart.dispatchAction({ type: 'dataZoom', start: 90, end: 100 });
+      }, 50);
     }
   }
 
