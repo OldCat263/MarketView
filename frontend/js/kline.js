@@ -435,8 +435,7 @@ window.MV.Kline = (function() {
         silent: true,
         symbol: 'none',
         lineStyle: { color: C.gold, type: 'dashed', width: 0.8, opacity: 0.7 },
-        label: { show: true, position: 'insideStart', color: C.gold, fontSize: 12,
-          fontWeight: 'bold', formatter: '昨收 ' + yesterdayClose.toFixed(2) },
+        label: { show: false },
         data: [{ yAxis: yesterdayClose }],
       };
       // 加一条透明参考线 series
@@ -604,7 +603,7 @@ window.MV.Kline = (function() {
           }
           if (minData && minData.data && minData.data.length > 0) {
             lastResp = minData;
-            document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时';
+            document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
             render(minData);
             return;
           }
@@ -614,7 +613,7 @@ window.MV.Kline = (function() {
       }
       // 降级：用缓存 K线数据
       if (lastResp) {
-        document.getElementById('klineTitle').textContent = (lastResp.name || code) + ' (' + code + ') 分时';
+        document.getElementById('klineTitle').textContent = (lastResp.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
         render(lastResp);
       }
     } else {
@@ -676,7 +675,7 @@ window.MV.Kline = (function() {
         }
         if (minData && minData.data && minData.data.length > 0) {
           lastResp = minData;
-          document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时';
+          document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
           render(minData);
           return;
         }
@@ -685,7 +684,7 @@ window.MV.Kline = (function() {
       }
     }
     if (lastResp) {
-      document.getElementById('klineTitle').textContent = (lastResp.name || currentCode) + ' (' + currentCode + ') 分时';
+      document.getElementById('klineTitle').textContent = (lastResp.name || currentCode) + ' (' + currentCode + ') 分时 | 昨收 ' + _yesterdayClose.toFixed(2);
       render(lastResp);
     }
   }
