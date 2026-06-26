@@ -542,7 +542,7 @@ window.MV.Kline = (function() {
   }
 
   // ─── 显隐 ───
-  function show(module, code) {
+  function show(module, code, name) {
     if (module) currentModule = module;
     // 显隐矩阵
     document.getElementById('grid').style.display = 'none';
@@ -568,7 +568,7 @@ window.MV.Kline = (function() {
     hideSuggest();
     // 初始化图表 + 加载数据
     if (!chart) initChart();
-    loadData(currentModule, code);
+    loadData(currentModule, code, false, name);
   }
 
   function _hide() {
@@ -842,6 +842,6 @@ MV.goHome = function() {
   if (nk) nk.classList.remove('active');
 };
 
-MV.goKline = function(module, code) {
-  MV.Kline.show(module || 'stock', code);
+MV.goKline = function(module, code, name) {
+  MV.Kline.show(module || 'stock', code, name);
 };
