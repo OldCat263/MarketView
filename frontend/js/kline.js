@@ -273,21 +273,21 @@ window.MV.Kline = (function() {
       series.push({
         name: '布林上轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.UPPER, symbol: 'none',
-        lineStyle: { color: C.bollUp, width: 0.8, type: 'dashed', opacity: 0.5 },
+        lineStyle: { color: C.bollUp, width: 1.2, type: 'dashed', opacity: 0.8 },
       });
     }
     if (boll.MID && boll.MID.length) {
       series.push({
         name: '布林中轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.MID, symbol: 'none',
-        lineStyle: { color: C.bollMid, width: 0.8, type: 'dashed', opacity: 0.5 },
+        lineStyle: { color: C.bollMid, width: 1.2, type: 'dashed', opacity: 0.8 },
       });
     }
     if (boll.LOWER && boll.LOWER.length) {
       series.push({
         name: '布林下轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.LOWER, symbol: 'none',
-        lineStyle: { color: C.bollLow, width: 0.8, type: 'dashed', opacity: 0.5 },
+        lineStyle: { color: C.bollLow, width: 1.2, type: 'dashed', opacity: 0.8 },
       });
     }
 
