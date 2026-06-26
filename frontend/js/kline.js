@@ -218,8 +218,8 @@ window.MV.Kline = (function() {
       ],
 
       dataZoom: [
-        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 50, end: 100 },
-        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 50, end: 100,
+        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100 },
+        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100,
           height: 20, bottom: 2, borderColor: C.border,
           backgroundColor: C.card, fillerColor: 'rgba(245,158,11,.15)',
           handleStyle: { color: C.gold }, textStyle: { color: C.dim, fontSize: 10 } },
