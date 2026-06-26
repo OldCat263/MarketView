@@ -90,7 +90,7 @@
 - **心跳机制**（V1.6.0.6）：后端每 3s 推 `shard=-1` 空数据，前端刷新 `fetchTime` 维持绿点
 - **客户端缓存**：sessionStorage（前端状态恢复，**非实时数据源**，TTL 15s）
 - **模块隔离**：ST 对象独立存储每模块的 rows/cols/page/sort/search，互不干扰
-- **时间显示三件套**：globalStamp（UI 时钟，每秒跳）+ viewTime（数据时间，真实推送时更新）+ liveStatus（连接活性，绿/红）
+- **时间显示三件套**：globalStamp（UI 时钟，每秒跳）+ viewTime（客户端实时时间，V1.6.0.8 回滚到 V1.6.0.3 行为，每秒跳）+ liveStatus（数据新鲜度，SSE 推时"实时"绿点，断连时"离线"红点）
 
 ## 🔴 铁律
 
@@ -143,8 +143,9 @@
 - [ ] 数据时间戳是否在最近交易时段内
 - [ ] 非交易时段数据是否为最近交易日收盘数据
 - [ ] 浏览器开发者工具 Network → EventStream 是否持续收到 `data:` 行
-- [ ] viewTime 仅在真实数据推送时更新（不依赖心跳）
-- [ ] liveStatus 由 fetchTime 算 ago（心跳维持绿点，>15s 变红）
+- [ ] **viewTime 每秒跳**（V1.6.0.8 客户端实时时间，与 SSE 解耦）
+- [ ] **viewTime 在 openModule 切模块瞬间不显示数据时间**（V1.6.0.16 删 openModule 内的 viewTime=fetchTime 赋值）
+- [ ] **liveStatus 由 fetchTime 算 ago**（心跳维持绿点，>15s 显式"离线"红点，V1.6.0.8）
 
 ### 3.5 K线专项检查（V1.7.0+）
 - [ ] 6 模块各跑一次 `/api/kline/{m}/{code}`，data 数组非空
@@ -285,4 +286,10 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.6.0.8 | 2026-06-26 | **viewTime 回滚实时时间 + SSE 断连显式"离线"**：回滚 V1.6.0.6 的 viewTime=数据时间设计（用户反馈"01:55:33+134秒前"看不懂），改回 V1.6.0.3 行为（客户端实时时间，每秒跳），与 SSE 推送完全解耦。SSE onerror 显式显示"离线"（红点 + 离线）替代"X秒前"，避免歧义。viewTime 与 liveStatus 仍解耦：viewTime=实时时钟（每秒跳），liveStatus=数据新鲜度（SSE 推时"实时"绿点，断连时"离线"红点）。两步协作：前端只改 core.js 的 refreshStamp + onerror 逻辑 + CLAUDE.md §7 文档同步 |
 | V1.6.0.9 | 2026-06-26 | **AI Skill 化 + 验收脚本化**：解决 4 份入门指南（60% 内容重叠）每次 Read 消耗大量 token 的问题。新建 `.trae/skills/` 目录含 4 个 Skill：① `mv-designer`（出设计/审批/维护 CLAUDE.md）② `mv-executor`（写代码/跑验收/同步技术文档/回报）③ `mv-reviewer`（复审/标 P0P1P2/改进意见）④ `mv-validator`（自动化验收）。每个 Skill description 极简（< 200 字符），按需 Read 文档。验收脚本 `mv_validate.py` 覆盖 4 类检查：6 模块数据量 + 6 模块 SSE 心跳（6s 窗口）+ V1.7.0+ K线接口（6 模块 MA/BOLL/MACD）+ 铁律自检（无本地存储/无收费 API/核心文件 diff）。原 4 份文档保留不动。**Token 节省 60%~70%** |
 | V1.6.0.10 | 2026-06-26 | **Skill 同步机制**：让 Skill 像本地文档一样"做一步更新一步"。① [开发手册 §十二](./docs/开发手册.md) 加第 8 步"⭐ 同步 `.trae/skills/` Skill" ② [设计师入门指南 §0.2](./docs/设计师入门指南.md) 加"Skill 同步三问"（角色职责变？必读必背变？验收工具变？满足任一即同步）③ [设计师指南 §0.1 分工表](./docs/设计师入门指南.md) 加 2 行（Skill.md / mv_validate.py 责任人 = 设计师）④ 同步规则：改代码 1 行 / 临时调试 / 字段顺序调整 → Skill 不动（只动"导航变化"） |
-| V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 计划中**（港股 K线 fallback：Tencent hkfqkline 主源 → 东财 stock_hk_hist → 新浪；补 API 文档 K线接口字段表，解决 Step 1 P0 遗留）；**Step 3 计划**（K线前端骨架 ECharts 接入）；**Step 4 计划**（数据集成 + 选代码 UX 方案 A 复用搜索框）；**Step 5 计划**（K线 SSE 5s 推最新K线 + 完整联调）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持 + 8周期 + MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas） |
+| V1.6.0.11 | 2026-06-26 | **全面文档同步 13 项**：① 删意外文件 `docs/V1.6.0.8+...-实施指令.md`（Trae 自动保存副本，违反铁律 1）② README.md 版本号 V1.6.0.6→V1.6.0.10 + 加 Skill 章节 ③ CLAUDE.md §3 实时性检查 + L93 时间三件套描述对齐 V1.6.0.8 设计 ④ [开发手册 §七](./docs/开发手册.md) viewTime 表改为"V1.6.0.8 回滚"+ "SSE 断连显式离线" ⑤ [开发手册 §九](./docs/开发手册.md) UI 原则 viewTime 描述同步 ⑥ 4 份入门指南铁律"6 条"→"8 条"（7 处分散）⑦ 4 份 Skill 必背"6 条铁律"→"8 条铁律"+ 加"协作流程 10 步" ⑧ 4 份 Skill 必读清单补 API 文档/故障排查 ⑨ mv-validator SKILL.md 补必背 + 触发 + 修错误命令 stock→modules ⑩ [故障排查 §10](./docs/故障排查.md) viewTime 设计描述对齐 V1.6.0.8 |
+| V1.6.0.12 | 2026-06-26 | **二轮文档/Skill 同步 8 项**（自查自纠）：① README.md 版本号 V1.6.0.10→V1.6.0.11 ② [mv-executor SKILL.md](./.trae/skills/mv-executor/SKILL.md) 必背补"8 条铁律 + 协作 10 步" ③ [mv-reviewer SKILL.md](./.trae/skills/mv-reviewer/SKILL.md) 必背补"8 条铁律 + 协作 10 步" ④ 3 份入门指南项目状态 V1.6.0.6→V1.6.0.11 ⑤ [执行者入门指南 §4 铁律表](./docs/执行者入门指南.md) 补齐 7+8 两条 + 描述"6 条"→"8 条" ⑥ 3 份指南常见问题速查表 §1-§9 编号→§1.1-§5.x 精确定位 ⑦ 3 份指南版本记录补 1.1 行（V1.6.0.7 铁律升级 + V1.6.0.11 同步） ⑧ [审批员入门指南 §2 §二 铁律](./docs/审批员入门指南.md) 描述简化"项目 6 条 + 补充 2 条"→"8 条" |
+| V1.6.0.13 | 2026-06-26 | **V1.6.0.8 实际落地封版**（2b2df26）：viewTime 回滚客户端实时时钟（core.js:288-291 refreshStamp 末尾 +3 行）+ SSE 断连显式"离线"（core.js:266-271 onerror + core.js:285 refreshStamp else 分支）。4 检查点全过：① viewTime 字段格式与设计一致 ② [故障排查 L389](./docs/故障排查.md) + [开发手册 L287](./docs/开发手册.md) 描述已对齐 ③ "离线"双保险触发（onerror + refreshStamp）+ 5s 自动重连 ④ git diff 16 行仅 core.js 无越界 |
+| V1.6.0.14 | 2026-06-26 | **viewTime 移出 if(tab) 块**（5c688a4）：refreshStamp() 重构（core.js:276-294），viewTime 与 globalStamp 平级，**永远每秒跳**（首页/切模块瞬间/后台标签 3 场景全覆盖）。liveStatus 仍受 if(tab) 保护（首页不显示符合预期）。[故障排查 §1.3](./docs/故障排查.md#L73) 补第 3 条根因"V1.6.0.13 之前 viewTime 嵌套在 if(tab)"。6 项验收全过：① 首页 viewTime 跳秒（关键）② 切模块不停 ③ 后台标签切回立即跳 ④ liveStatus 仍正常 ⑤ git diff 仅 refreshStamp + 注释 ⑥ 范围仅 2 文件 |
+| V1.6.0.15 | 2026-06-26 | **mv_validate Windows GBK 编码修复**（5350dee）：[mv_validate.py:24-28](./.trae/skills/mv-validator/scripts/mv_validate.py#L24-L28) 加 4 行 `sys.stdout/stderr.reconfigure(encoding='utf-8', errors='replace')`（hasattr 守卫兼容 Linux/旧 Python），emoji（✅/⚠️/❌）在 Windows PowerShell 5 终端正常输出。[故障排查 §7](./docs/故障排查.md#L401) 表格 +1 行"验收脚本崩溃"案例。SKILL.md 核对不需紧急修订（脚本自动 fix）。4 项验收全过：① py_compile ② PowerShell 5 跑 kline 不崩（关键） ③ all 4/4 全过 ④ hasattr 守卫无副作用。**附带遗留 P2**：subprocess capture_output pipe 层 GBK 解码警告，不影响验收结果输出，V1.6.0.16 计划 |
+| V1.6.0.16 | 2026-06-26 | **openModule 移除 viewTime 数据时间赋值**（35c2bf7）：[core.js:113-116](./frontend/js/core.js#L113-L116) 删 3 行 `vtEl.textContent = '更新 ' + new Date(ST[m].fetchTime).toLocaleTimeString()`，改为 2 行 `if (ST[m]) ST[m].fetchTime = Date.now()` 维持 liveStatus 绿点。[故障排查 §1.3](./docs/故障排查.md#L76) 补第 4 条根因"V1.6.0.15 之前 openModule 设 viewTime=数据时间"。[CLAUDE.md §3 实时性检查](./CLAUDE.md#L147) 补 1 行"viewTime 在 openModule 切模块瞬间不显示数据时间"。**viewTime 现在所有场景都显示客户端实时时间**：① 首页（V1.6.0.14 移出 if(tab)）② 切模块瞬间（V1.6.0.16 删 fetchTime 赋值）③ 数据静止（refreshStamp 永远每秒跳）④ liveStatus 仍正常（切模块即刷 fetchTime）。5 项验收全过：node -c / git diff -3+2 / 切模块=客户端时间 / 红点+老数据已消除 / mv_validate rules 3/3 |
+| V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 计划**（K线前端骨架 ECharts 接入）；**Step 4 计划**（数据集成 + 选代码 UX 方案 A 复用搜索框）；**Step 5 计划**（K线 SSE 5s 推最新K线 + 完整联调）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持 + 8周期 + MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |

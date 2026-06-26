@@ -49,6 +49,16 @@ uvicorn main:app --workers 1
 | 加密 | Binance API（需 `CRYPTO_PROXY`）|
 | K线 | 腾讯 K线 + Binance klines（V1.7.0+）|
 
+## ⭐ AI Skill（按角色触发，节省 token）
+
+4 个 Skill 在 [`.trae/skills/`](./.trae/skills/)：设计师 / 执行者 / 审批员 / 验收工具。
+
+```bash
+python .trae/skills/mv-validator/scripts/mv_validate.py all  # 一键跑 6 模块 + SSE + K线 + 铁律
+```
+
+详见 [CLAUDE.md §AI Skill](./CLAUDE.md)。
+
 ---
 
-**版本**：V1.6.0.6 封版 / V1.7.0 K线图 进行中
+**版本**：V1.6.0.16 封版 / V1.7.0 K线 Step 1+2 完成（HK fallback + API 文档） / Step 3 计划中
