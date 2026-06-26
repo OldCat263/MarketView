@@ -435,7 +435,7 @@ window.MV.Kline = (function() {
         silent: true,
         symbol: 'none',
         lineStyle: { color: C.gold, type: 'dashed', width: 0.8, opacity: 0.7 },
-        label: { show: true, position: 'start', color: C.gold, fontSize: 12,
+        label: { show: true, position: 'insideStart', color: C.gold, fontSize: 12,
           fontWeight: 'bold', formatter: '昨收 ' + yesterdayClose.toFixed(2) },
         data: [{ yAxis: yesterdayClose }],
       };
