@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fetcher import (crypto_status, get_crypto_json,
     get_stock_json, get_etf_json, get_hk_json, get_us_json, get_index_json,
+    get_news_json,
     fetch_stock_shard, fetch_etf_shard, fetch_hk_shard,
-    fetch_us_shard, fetch_index_shard, fetch_crypto_shard)
+    fetch_us_shard, fetch_index_shard, fetch_crypto_shard, fetch_news_shard)
 from fetcher import kline, indicators
 
 # ── 分片配置 ──
@@ -24,11 +25,13 @@ SHARD_CFG = {
     'hk':      {'n': 6,  'interval': 2.5},
     'us':      {'n': 11, 'interval': 1},
     'index':   {'n': 1,  'interval': 3},
+    'news':    {'n': 1,  'interval': 60},
 }
 SHARD_FN = {
     'stock': fetch_stock_shard, 'etf': fetch_etf_shard,
     'hk': fetch_hk_shard, 'us': fetch_us_shard,
     'index': fetch_index_shard, 'crypto': fetch_crypto_shard,
+    'news': fetch_news_shard,
 }
 
 # ── 分片缓存（纯RAM，不落盘）──
@@ -123,7 +126,8 @@ async def lifespan(app: FastAPI):
     # 启动首轮全量预加载（加速首次访问）— 写分片 schema，与 _cached_get 一致
     def _initial_load():
         for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
-                        ('hk', get_hk_json), ('us', get_us_json), ('index', get_index_json)]:
+                        ('hk', get_hk_json), ('us', get_us_json), ('index', get_index_json),
+                        ('news', get_news_json)]:
             try:
                 raw = fn()
                 data = json.loads(raw) if isinstance(raw, str) else raw
@@ -189,6 +193,10 @@ def us_spot():
 @app.get('/api/index/spot')
 def index_spot():
     return _ok(_cached_get('index'))
+
+@app.get('/api/news/spot')
+def news_spot():
+    return _ok(_cached_get('news'))
 
 # ── K线（V1.7.0）──
 KL_FN = {

@@ -38,6 +38,7 @@
     <div class="wrap">
       <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
       <div class="empty" id="empty">加载中...</div>
+      <div class="news-list" id="newsPanel" style="display:none"></div>
     </div>
     <div class="pager" id="pager" style="display:none">
       <button onclick="MV.goPage('first')">首页</button>
@@ -105,8 +106,8 @@
     html += '<div class="card" id="card_'+m.id+'" onclick="MV.'+(m.id==='crypto'?'startCrypto':'startModule')+'(\''+m.id+'\')">'+
       '<div class="card-icon">'+m.icon+'</div>'+
       '<div class="card-name">'+m.name+'</div>'+
-      '<div class="card-status"><span class="status">'+((m.id==='news')?'🚧':'⏳')+'</span></div>'+
-      '<div class="card-count">'+((m.id==='news')?'即将上线':'等待加载')+'</div>'+
+      '<div class="card-status"><span class="status">⏳</span></div>'+
+      '<div class="card-count">等待加载</div>'+
     '</div>';
   });
   document.getElementById('grid').innerHTML = html;

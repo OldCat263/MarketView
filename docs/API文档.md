@@ -210,7 +210,7 @@ GET /api/index/spot
 GET /api/stream/{module}
 ```
 
-**支持的 module**: stock / etf / hk / us / index / crypto
+**支持的 module**: stock / etf / hk / us / index / crypto / news
 
 **说明**: Server-Sent Events，每个分片刷新时推送增量数据。前端 EventSource 连接后自动接收 `data:` 事件，包含 `shard`（分片编号）、`data`（行列表）、`ts`（时间戳）。
 
@@ -352,6 +352,45 @@ curl -N -m 6 'http://localhost:8000/api/stream/kline/stock/sh600519?period=1d' 2
 
 # 心跳（10s 窗口内应 ≥ 1 个 heartbeat）
 curl -N -m 10 'http://localhost:8000/api/stream/kline/stock/sh600519?period=1d' 2>&1 | grep -c heartbeat
+```
+
+---
+
+## 10. 新闻 — 新浪财经 + 财新头条（V1.8.0+）
+
+```
+GET /api/news/spot
+```
+
+**数据源**: 新浪财经 `feed.mix.sina.com.cn`（主）→ 财新头条 `stock_news_main_cx`（备）
+**缓存**: 服务端分片缓存 + 60s 滚动刷新
+**数据量**: 新浪 50 条实时财经要闻（4h 窗口），主源为空时 fallback 到财新 100 条
+
+| 响应字段 | 类型 | 说明 |
+|----------|------|------|
+| datetime | string | 发布时间，格式 YYYY-MM-DD HH:MM:SS（主源有精确时间，备源为空）|
+| content | string | 新闻内容（标题+摘要，格式："标题：摘要"）|
+| source | string | 来源媒体（如"环球市场播报"、"财新头条"等）|
+
+> 原设计数据源为 AKShare `js_news` → 金十数据，因当前 AKShare 版本（1.18.64）无此函数，改用新浪财经直接 HTTP + 财新头条 fallback。
+
+### 10.1 新闻 SSE 实时推送
+
+```
+GET /api/stream/news
+```
+
+**间隔**: 每 60s 推一次全量数据（新闻滚动刷新周期），3s 心跳维持连接
+**消息格式**: `{shard: 0, data: [...], ts}` / `{shard: -1, data: [], ts}`（心跳）
+**前端处理**: 新闻模块无"代码"索引，SSE 推送时全量替换 `st.rows`，委托 `renderNews()` 重新渲染卡片流
+
+**验证命令**：
+```bash
+# REST 接口
+curl -s http://localhost:8000/api/news/spot | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',[])),'条新闻')"
+
+# SSE 心跳（6s 窗口，预期 1~2 个心跳）
+curl -N -m 6 'http://localhost:8000/api/stream/news' 2>&1 | grep -c 'shard.-1'
 ```
 
 ---

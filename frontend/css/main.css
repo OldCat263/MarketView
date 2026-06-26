@@ -77,5 +77,15 @@ tr{cursor:pointer;transition:background .15s}tr:hover{background:rgba(245,158,11
 .kline-suggest-item:hover,.kline-suggest-item.active{background:rgba(245,158,11,.12);color:var(--gold)}
 .kline-suggest-item .ks-code{color:var(--dim);font-size:11px}
 
-@media(max-width:768px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}.card{padding:16px 12px}.bar input{font-size:12px}table{font-size:11px}th,td{padding:5px 4px}}
+/* ─── 新闻卡片（V1.8.0）─── */
+.news-list{max-height:calc(100vh - 220px);overflow-y:auto;padding:4px 0}
+.news-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;transition:border-color .2s}
+.news-card:hover{border-color:var(--gold)}
+.news-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.news-time{color:var(--gold);font-size:12px;font-weight:600;white-space:nowrap}
+.news-source{color:var(--dim);font-size:11px}
+.news-content{color:var(--text);font-size:13px;line-height:1.6;word-break:break-all}
+.news-empty{text-align:center;padding:60px 20px;color:var(--dim);font-size:14px}
+
+@media(max-width:768px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}.card{padding:16px 12px}.bar input{font-size:12px}table{font-size:11px}th,td{padding:5px 4px}.news-card{padding:10px 12px}}
 @media(max-width:480px){.grid{grid-template-columns:repeat(2,1fr)}.header{padding:20px 0 14px}}

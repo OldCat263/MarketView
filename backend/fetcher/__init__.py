@@ -1,5 +1,5 @@
 """MarketView 数据获取层 — 每模块独立文件"""
-from . import crypto, stock, etf, hk, us, index_mod
+from . import crypto, stock, etf, hk, us, index_mod, news
 
 # ── 加密货币 ──
 crypto_status = crypto.status
@@ -25,3 +25,7 @@ fetch_us_shard = us.fetch_shard
 # ── 指数 ──
 get_index_json = index_mod.get_json
 fetch_index_shard = index_mod.fetch_shard
+
+# ── 新闻（V1.8.0）──
+get_news_json = news.get_news_json
+fetch_news_shard = news.fetch_news_shard

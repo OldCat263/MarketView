@@ -52,6 +52,9 @@ window.MV = (function() {
 
   // ─── 渲染表格 ───
   function render() {
+    // 自定义渲染（如新闻卡片流）
+    let cfg = registry[tab];
+    if (cfg && cfg.renderFn) { cfg.renderFn(rows, cols); return; }
     let r = rows;
     let q = document.getElementById('search').value.trim().toLowerCase();
     if (q) r = r.filter(row => cols.some(k => String(row[k] || '').toLowerCase().includes(q)));
@@ -66,7 +69,7 @@ window.MV = (function() {
     if (!total) { document.getElementById('thead').innerHTML = ''; document.getElementById('tbody').innerHTML = ''; document.getElementById('empty').style.display = 'block'; return; }
     document.getElementById('empty').style.display = 'none';
     document.getElementById('thead').innerHTML = '<tr>' + cols.map(k => '<th onclick="MV.sort(\'' + k + '\')">' + k + (sortKey === k ? (sortDir > 0 ? ' ↑' : ' ↓') : '') + '</th>').join('') + '</tr>';
-    let cfg = registry[tab];
+    cfg = registry[tab];
     let fmt = cfg ? (cfg.format || formatChinese) : formatChinese;
     let indent = cfg ? cfg.tabIndent : false;
     document.getElementById('tbody').innerHTML = pr.map(row =>
@@ -117,6 +120,13 @@ window.MV = (function() {
     if (ST[m]) ST[m].fetchTime = Date.now();
     document.getElementById('grid').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
+    // 新闻模块：隐藏表格，显示新闻面板
+    let isNews = registry[m] && registry[m].renderMode === 'news';
+    document.getElementById('thead').style.display = isNews ? 'none' : '';
+    document.getElementById('tbody').style.display = isNews ? 'none' : '';
+    document.getElementById('empty').style.display = isNews ? 'none' : '';
+    document.getElementById('pager').style.display = isNews ? 'none' : (rows.length > pageSize ? 'flex' : 'none');
+    document.getElementById('newsPanel').style.display = isNews ? 'block' : 'none';
     render();
   }
 
@@ -160,12 +170,10 @@ window.MV = (function() {
 
     let cc = document.getElementById('card_crypto');
     cc.querySelector('.card-status .status').textContent = '💤'; cc.querySelector('.card-count').textContent = '点击加载';
-    let nc = document.getElementById('card_news');
-    nc.querySelector('.card-status .status').textContent = '🚧'; nc.querySelector('.card-count').textContent = '即将上线';
     loadedCount++; totalMods = MODULES.length - 1;
 
     await Promise.all(MODULES.map(async m => {
-      if (m.id === 'crypto' || m.id === 'news' || m.placeholder) return;
+      if (m.id === 'crypto' || m.placeholder) return;
       let cached = cacheGet(m.id, true);
       if (cached) {
         ST[m.id] = { rows: cached.rows, cols: cached.cols, page: 1, sortKey: null, sortDir: 1, updateTime: cached.time, search: '', fetchTime: Date.now() };
@@ -222,6 +230,18 @@ window.MV = (function() {
         let st = ST[m];
         if (!st || !st.rows) return;
         let shardRows = msg.data;
+        // 新闻模块：全量替换（无代码 key，不做 diff）
+        if (registry[m] && registry[m].renderMode === 'news') {
+          st.rows = shardRows;
+          st.fetchTime = Date.now();
+          st.updateTime = new Date().toLocaleTimeString();
+          if (tab === m) { rows = st.rows; updateTime = st.updateTime; render(); }
+          let card = document.getElementById('card_' + m);
+          if (card) card.querySelector('.card-count').textContent = st.rows.length + ' 条';
+          let ls = document.getElementById('liveStatus');
+          if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
+          return;
+        }
         // 为分片数据建索引，按"代码"匹配旧行做 diff
         let byCode = {};
         shardRows.forEach(r => { let c = r['代码'] || r['交易对']; if (c) byCode[c] = r; });
@@ -303,7 +323,11 @@ window.MV = (function() {
     ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value };
     render();
   }
-  function doFilter() { page = 1; render(); }
+  function doFilter() {
+    let cfg = registry[tab];
+    if (cfg && cfg.renderFn) { cfg.renderFn(rows, cols); return; }
+    page = 1; render();
+  }
 
   function showToast(msg) {
     let t = document.getElementById('toast');
