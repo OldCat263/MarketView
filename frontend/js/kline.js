@@ -35,8 +35,8 @@ window.MV.Kline = (function() {
     ma250:  '#ef4444',   // red
     // BOLL
     bollUp: '#f59e0b',
-    bollMid:'#8b5cf6',
-    bollLow:'#06b6d4',
+    bollMid:'#a78bfa',
+    bollLow:'#22d3ee',
     // MACD
     dif:    '#f59e0b',   // gold
     dea:    '#3b82f6',   // blue
