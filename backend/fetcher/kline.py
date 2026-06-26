@@ -20,6 +20,10 @@ def _fetch_tencent(code, period, count):
     """腾讯 K线通用请求（A股/ETF/指数/港股/美股 均用 fqkline 接口）
     Returns: [[date_str, open, close, high, low, volume, amount], ...] 或 []
     """
+    # 分钟级走 mkline 接口（fqkline 不支持分钟）
+    if period in ('1m','5m','15m','30m','60m'):
+        return _fetch_tencent_minute(code, period, count)
+
     tx_p = _TX_PERIOD.get(period, 'day')
     url = f'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{tx_p},,,{count},qfq'
     try:
@@ -56,6 +60,57 @@ def _fetch_tencent(code, period, count):
         return rows
     except Exception as e:
         print(f'[kline] {code}: {e}')
+        return []
+
+
+def _fetch_tencent_minute(code, period, count):
+    """腾讯 mkline 接口（分钟级 K线：1m/5m/15m/30m/60m）
+    fqkline 不支持分钟周期（返回空 list），需换用 mkline（HTTP 无 web 前缀）。
+    URL: http://ifzq.gtimg.cn/appstock/app/kline/mkline?param={code},{tx_p},,{count}
+    响应格式: data[code][tx_p] = [[datetime, open, close, high, low, volume], ...]
+    注意: 分钟线无成交额字段（amount 填 0），datetime 格式为 YYYYMMDDHHmm。
+    Returns: [[date_str, open, close, high, low, volume, amount], ...] 或 []
+    """
+    tx_p = _TX_PERIOD.get(period, 'm5')
+    # mkline 用 HTTPS 不带 web. 前缀（web.ifzq 会 301→web3 不可达）
+    url = f'https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={code},{tx_p},,{count}'
+    try:
+        resp = httpx.get(url, timeout=30)
+        data = resp.json()
+        if data.get('code') != 0:
+            return []
+        stock_data = data.get('data', {}).get(code, {})
+        if not stock_data:
+            return []
+        # K线数据在 period key 下（如 m5），不是遍历找 list
+        raw = stock_data.get(tx_p, [])
+        if not raw or not isinstance(raw, list) or len(raw) == 0:
+            return []
+        # 腾讯返回按时间降序，反转成升序
+        raw = raw[:count]
+        raw.reverse()
+        rows = []
+        for item in raw:
+            if len(item) >= 6:
+                # mkline 返回 6 列: [datetime, open, close, high, low, volume]
+                # datetime 格式: 202606261450 → 2026-06-26 14:50
+                dt = str(item[0])
+                if len(dt) == 12:
+                    dt = f'{dt[:4]}-{dt[4:6]}-{dt[6:8]} {dt[8:10]}:{dt[10:12]}'
+                elif len(dt) == 8:  # 日K fallback
+                    dt = f'{dt[:4]}-{dt[4:6]}-{dt[6:8]}'
+                rows.append([
+                    dt,
+                    float(item[1]),   # 开盘
+                    float(item[2]),   # 收盘
+                    float(item[3]),   # 最高
+                    float(item[4]),   # 最低
+                    float(item[5]),   # 成交量
+                    0,                # 成交额（mkline 不返回）
+                ])
+        return rows
+    except Exception as e:
+        print(f'[kline] {code} mkline: {e}')
         return []
 
 

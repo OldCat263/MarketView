@@ -46,7 +46,7 @@
 | 4 | 🌏 港股 | 腾讯 → 东财 stock_hk_spot_em → 新浪 stock_hk_spot | 全量实时 | ✅ |
 | 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪 | 全量实时 | ✅ |
 | 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
-| 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图（V1.7.0 Step 1+2 ✅ / Step 3 ✅） | 全量实时 | 🔄 |
+| 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图（V1.7.0 Step 1+2 ✅ / Step 3 ✅ / Step 4 📋 设计已出） | 全量实时 | 🔄 |
 | 8 | 📰 新闻 | 预留 | — | 🚧 |
 
 ## 数据源详解
@@ -75,12 +75,13 @@
 - 指数：东财 index_global_spot_em → 新浪（global 字段需海外网络，限流时为空）
 
 ### K线（V1.7.0+）：腾讯 K线接口 + Binance Klines
-- A股/ETF/指数：腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
+- A股/ETF/指数：腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`（日/周/月）+ `ifzq.gtimg.cn/appstock/app/kline/mkline`（分钟 1m/5m/15m/30m/60m，不带 web 前缀）
 - 港股：腾讯 `appstock/app/hfqkline/get`（hk 前缀）
 - 美股：腾讯 `appstock/app/usfqkline/get`（us 前缀）
 - 加密：Binance `/api/v3/klines`
 - 8 周期：1m/5m/15m/30m/60m/1d/1w/1M
 - 指标计算：纯 Python（MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)）
+- 分钟K线注意：fqkline 不支持分钟周期（返回空），自动切换 mkline；mkline 不返回成交额（amount=0）
 
 ## 前端架构
 - **首页**：8 张卡片网格（3×3），首次访问显示进度条+加载时间
@@ -293,4 +294,4 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.6.0.15 | 2026-06-26 | **mv_validate Windows GBK 编码修复**（5350dee）：[mv_validate.py:24-28](./.trae/skills/mv-validator/scripts/mv_validate.py#L24-L28) 加 4 行 `sys.stdout/stderr.reconfigure(encoding='utf-8', errors='replace')`（hasattr 守卫兼容 Linux/旧 Python），emoji（✅/⚠️/❌）在 Windows PowerShell 5 终端正常输出。[故障排查 §7](./docs/故障排查.md#L401) 表格 +1 行"验收脚本崩溃"案例。SKILL.md 核对不需紧急修订（脚本自动 fix）。4 项验收全过：① py_compile ② PowerShell 5 跑 kline 不崩（关键） ③ all 4/4 全过 ④ hasattr 守卫无副作用。**附带遗留 P2**：subprocess capture_output pipe 层 GBK 解码警告，不影响验收结果输出，V1.6.0.16 计划 |
 | V1.6.0.16 | 2026-06-26 | **openModule 移除 viewTime 数据时间赋值**（35c2bf7）：[core.js:113-116](./frontend/js/core.js#L113-L116) 删 3 行 `vtEl.textContent = '更新 ' + new Date(ST[m].fetchTime).toLocaleTimeString()`，改为 2 行 `if (ST[m]) ST[m].fetchTime = Date.now()` 维持 liveStatus 绿点。[故障排查 §1.3](./docs/故障排查.md#L76) 补第 4 条根因"V1.6.0.15 之前 openModule 设 viewTime=数据时间"。[CLAUDE.md §3 实时性检查](./CLAUDE.md#L147) 补 1 行"viewTime 在 openModule 切模块瞬间不显示数据时间"。**viewTime 现在所有场景都显示客户端实时时间**：① 首页（V1.6.0.14 移出 if(tab)）② 切模块瞬间（V1.6.0.16 删 fetchTime 赋值）③ 数据静止（refreshStamp 永远每秒跳）④ liveStatus 仍正常（切模块即刷 fetchTime）。5 项验收全过：node -c / git diff -3+2 / 切模块=客户端时间 / 红点+老数据已消除 / mv_validate rules 3/3 |
 | V1.6.0.17 | 2026-06-26 | **V1.6.0.11~V1.6.0.16 文档同步 catch-up**（0e3a7ae）：11 文件（4 SKILL.md + CLAUDE.md + README.md + 5 docs）铁律 6→8 全文档对齐 + 4 份 Skill 必背补全 + 交叉引用 §x.y 精确化 + viewTime 三件套描述升级 + 项目状态更新。修复 API 文档 L271 data 列序 `l,h`→`h,l` 与实际后端对齐 |
-| V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 ✅**（K线前端骨架 ECharts 接入 — index.html + main.css + kline.js，导航栏+容器+三联图+MA/BOLL/MACD+8周期+显隐矩阵+dispose重建策略，验收 5/5 K线接口全过）；**Step 4 计划**（数据集成 + 选代码 UX 方案 A 复用搜索框）；**Step 5 计划**（K线 SSE 5s 推最新K线 + 完整联调）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持 + 8周期 + MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |
+| V1.7.0 | 2026-06-26 | 🔄 **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 ✅**（K线前端骨架 ECharts 接入 — index.html + main.css + kline.js，导航栏+容器+三联图+MA/BOLL/MACD+8周期+显隐矩阵+dispose重建策略，验收 5/5 K线接口全过）；**Step 4 ✅ 分钟K线数据源修复**（`_fetch_tencent_minute` — 换用 `ifzq.gtimg.cn` mkline 接口 [HTTPS 无 web 前缀]，解析路径 `data[code][m5]` 6 列格式，datetime YYYYMMDDHHmm→标准格式，amount 填 0；`_fetch_tencent` 加点判断自动分流分钟→mkline）；**Step 5 计划**（K线 SSE 5s 推最新K线 + 完整联调）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 6模块全支持 + 8周期 + MA5/10/20/60/120/250 + BOLL(20/2) + MACD(12/26/9)。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |
