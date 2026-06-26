@@ -94,14 +94,15 @@ window.MV.Kline = (function() {
     if (!module || !code) return '';
     var cache = MV.cacheGet(module, true);
     if (!cache || !cache.rows) return '';
-    // stock/etf/index 已是全前缀（sh/sz），直接匹配
-    // hk/us 需去前缀匹配（spot 数据无前缀）
     var spotCode = code;
     if ((module === 'hk' || module === 'us') && code.length > 2) spotCode = code.substring(2);
+    var numPart = code.replace(/^[a-z]+/, '');  // sh920363 → 920363
     for (var i = 0; i < cache.rows.length; i++) {
       var r = cache.rows[i];
       var c = r['代码'] || r['交易对'] || '';
       if (c === spotCode || c === code) return r['名称'] || '';
+      // 北交所等不同前缀：数字部分匹配
+      if (numPart.length >= 6 && c.replace(/^[a-z]+/, '') === numPart) return r['名称'] || '';
     }
     return '';
   }
