@@ -144,12 +144,13 @@ window.MV.Kline = (function() {
             var v = p.value;
             var mk = p.marker;
             if (sn === 'K线') {
-              // v = [open, close, low, high]
+              // ECharts 5.5 5元素 [dataIndex,open,close,low,high] / 旧版4元素
+              var off = v.length === 5 ? 1 : 0;
               html += mk + ' <b>K线</b><br/>';
-              html += '&nbsp;&nbsp;开盘: ' + (v[0] != null ? v[0].toFixed(2) : '-') + '<br/>';
-              html += '&nbsp;&nbsp;收盘: ' + (v[1] != null ? v[1].toFixed(2) : '-') + '<br/>';
-              html += '&nbsp;&nbsp;最高: ' + (v[3] != null ? v[3].toFixed(2) : '-') + '<br/>';
-              html += '&nbsp;&nbsp;最低: ' + (v[2] != null ? v[2].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;开盘: ' + (v[off] != null ? v[off].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;收盘: ' + (v[off+1] != null ? v[off+1].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;最低: ' + (v[off+2] != null ? v[off+2].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;最高: ' + (v[off+3] != null ? v[off+3].toFixed(2) : '-') + '<br/>';
             } else if (sn.indexOf('MACD') === 0) {
               // MACD 系列在一行显示
               if (i === 0 || params[i-1].seriesName.indexOf('MACD') !== 0) {
