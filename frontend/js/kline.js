@@ -236,14 +236,17 @@ window.MV.Kline = (function() {
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
           axisLabel: baseAxisLabel, position: 'right' },
         { gridIndex: 1, scale: true, splitLine: { show: false },
-          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
+          name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
         { gridIndex: 2, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'right' },
+          axisLabel: baseAxisLabel, position: 'right',
+          name: 'MACD', nameTextStyle: { color: C.dim, fontSize: 10 } },
       ] : [
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
           axisLabel: baseAxisLabel, position: 'right' },
         { gridIndex: 1, scale: true, splitLine: { show: false },
-          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
+          name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
       ],
 
       dataZoom: [
@@ -435,7 +438,8 @@ window.MV.Kline = (function() {
         { gridIndex: 0, scale: true, splitLine: splitLine,
           axisLabel: axisLabel, position: 'right' },
         { gridIndex: 1, scale: true, splitLine: { show: false },
-          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
+          name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
       ],
 
       dataZoom: [
