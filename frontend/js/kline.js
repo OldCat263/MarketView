@@ -457,7 +457,7 @@ window.MV.Kline = (function() {
   // ─── 加载数据 ───
   // force=true 时跳过缓存（手动切周期/代码）
   // module + code 参数化：code 可选，无则从 KL_NAMES 取默认
-  async function loadData(module, code, force) {
+  async function loadData(module, code, force, displayName) {
     if (!module) module = currentModule;
     if (!code) {
       var def = KL_NAMES[module];
@@ -481,7 +481,8 @@ window.MV.Kline = (function() {
           var maxAge = isTradingHours(module) ? 60000 : Infinity;
           if (age < maxAge) {
             lastResp = cached.data;
-            document.getElementById('klineTitle').textContent = (cached.data.name || code) + ' (' + code + ')';
+            var title1 = displayName || cached.data.name || code;
+            document.getElementById('klineTitle').textContent = title1 + ' (' + code + ')';
             render(cached.data);
             return;
           }
@@ -496,8 +497,8 @@ window.MV.Kline = (function() {
       var resp = await fetch(url).then(function(r) { return r.json(); });
       if (resp.error) { console.warn('Kline load error:', resp.error); return; }
       lastResp = resp;
-      var displayName = resp.name || code;
-      document.getElementById('klineTitle').textContent = displayName + ' (' + code + ')';
+      var title2 = displayName || resp.name || code;
+      document.getElementById('klineTitle').textContent = title2 + ' (' + code + ')';
       MV.cacheSet(cacheKey, resp);
       render(resp);
     } catch (e) {
@@ -761,7 +762,7 @@ window.MV.Kline = (function() {
     if (input) input.value = name + ' (' + code + ')';
     hideSuggest();
     currentModule = module;
-    loadData(module, code, true);
+    loadData(module, code, true, name);
   }
 
   // ─── 高亮建议项 ───
