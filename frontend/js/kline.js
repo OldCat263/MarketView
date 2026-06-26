@@ -206,12 +206,12 @@ window.MV.Kline = (function() {
 
       // === MACD 关闭时 2 面板 / 开启时 3 面板 ===
       grid: showMACD ? [
-        { left: '8%', right: '8%', top: '5%', height: '52%' },
-        { left: '8%', right: '8%', top: '63%', height: '12%' },
-        { left: '8%', right: '8%', top: '78%', height: '17%' },
+        { left: '8%', right: '8%', top: '5%', height: '48%' },
+        { left: '8%', right: '8%', top: '58%', height: '12%' },
+        { left: '8%', right: '8%', bottom: '36', top: '73%' },
       ] : [
-        { left: '8%', right: '8%', top: '5%', height: '68%' },
-        { left: '8%', right: '8%', top: '78%', height: '17%' },
+        { left: '8%', right: '8%', top: '5%', height: '60%' },
+        { left: '8%', right: '8%', bottom: '36', top: '70%' },
       ],
 
       xAxis: showMACD ? [
@@ -234,7 +234,8 @@ window.MV.Kline = (function() {
 
       yAxis: showMACD ? [
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'right' },
+          axisLabel: baseAxisLabel, position: 'right',
+          name: 'K线', nameTextStyle: { color: C.dim, fontSize: 10 } },
         { gridIndex: 1, scale: true, splitLine: { show: false },
           axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
           name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
@@ -243,7 +244,8 @@ window.MV.Kline = (function() {
           name: 'MACD', nameTextStyle: { color: C.dim, fontSize: 10 } },
       ] : [
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'right' },
+          axisLabel: baseAxisLabel, position: 'right',
+          name: 'K线', nameTextStyle: { color: C.dim, fontSize: 10 } },
         { gridIndex: 1, scale: true, splitLine: { show: false },
           axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
           name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
@@ -252,9 +254,18 @@ window.MV.Kline = (function() {
       dataZoom: [
         { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100 },
         { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100,
-          height: 20, bottom: 2, borderColor: C.border,
+          height: 20, bottom: 4, borderColor: C.border,
           backgroundColor: C.card, fillerColor: 'rgba(245,158,11,.15)',
           handleStyle: { color: C.gold }, textStyle: { color: C.dim, fontSize: 10 } },
+      ],
+
+      graphic: showMACD ? [
+        { type: 'text', left: '9%', top: '3%', style: { text: 'K线', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
+        { type: 'text', left: '9%', top: '56%', style: { text: 'VOL', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
+        { type: 'text', left: '9%', top: '71%', style: { text: 'MACD', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
+      ] : [
+        { type: 'text', left: '9%', top: '3%', style: { text: 'K线', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
+        { type: 'text', left: '9%', top: '68%', style: { text: 'VOL', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
       ],
 
       series: buildSeries(ohlc, volumes, volColors, ma, boll, macd, macdHist, histColors),
@@ -422,8 +433,8 @@ window.MV.Kline = (function() {
       },
 
       grid: [
-        { left: '8%', right: '8%', top: '5%', height: '66%' },
-        { left: '8%', right: '8%', top: '77%', height: '18%' },
+        { left: '8%', right: '8%', top: '5%', height: '58%' },
+        { left: '8%', right: '8%', bottom: '36', top: '68%' },
       ],
 
       xAxis: [
@@ -436,7 +447,8 @@ window.MV.Kline = (function() {
 
       yAxis: [
         { gridIndex: 0, scale: true, splitLine: splitLine,
-          axisLabel: axisLabel, position: 'right' },
+          axisLabel: axisLabel, position: 'right',
+          name: '价格', nameTextStyle: { color: C.dim, fontSize: 10 } },
         { gridIndex: 1, scale: true, splitLine: { show: false },
           axisLabel: { color: C.dim, fontSize: 10 }, position: 'right',
           name: 'VOL', nameTextStyle: { color: C.dim, fontSize: 10 } },
@@ -444,6 +456,11 @@ window.MV.Kline = (function() {
 
       dataZoom: [
         { type: 'inside', xAxisIndex: [0,1], start: 0, end: 100 },
+      ],
+
+      graphic: [
+        { type: 'text', left: '9%', top: '3%', style: { text: '价格', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
+        { type: 'text', left: '9%', top: '66%', style: { text: 'VOL', fill: C.dim, fontSize: 11, fontWeight: 'bold' } },
       ],
 
       series: [
