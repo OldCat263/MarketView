@@ -218,8 +218,8 @@ window.MV.Kline = (function() {
       ],
 
       dataZoom: [
-        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100 },
-        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 90, end: 100,
+        { type: 'inside', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 0, end: 100 },
+        { type: 'slider', xAxisIndex: showMACD ? [0,1,2] : [0,1], start: 0, end: 100,
           height: 20, bottom: 2, borderColor: C.border,
           backgroundColor: C.card, fillerColor: 'rgba(245,158,11,.15)',
           handleStyle: { color: C.gold }, textStyle: { color: C.dim, fontSize: 10 } },
@@ -506,18 +506,31 @@ window.MV.Kline = (function() {
     }
   }
 
+  // ─── 辅助：slice 指标对象 ───
+  function sliceObject(obj, n) {
+    var result = {};
+    for (var k in obj) {
+      if (Array.isArray(obj[k])) result[k] = obj[k].slice(n);
+    }
+    return result;
+  }
+
   // ─── 渲染图表（分派 K线/分时）───
   function render(resp) {
     if (!chart) initChart();
     if (!chart) return;
+    if (!showMinute && resp.data && resp.data.length > 120) {
+      // 图表只显示最近 120 根，指标用完整数据已计算好
+      resp = {
+        data: resp.data.slice(-120),
+        ma: sliceObject(resp.ma, -120),
+        boll: sliceObject(resp.boll, -120),
+        macd: sliceObject(resp.macd, -120),
+        name: resp.name, code: resp.code, module: resp.module, period: resp.period, ts: resp.ts,
+      };
+    }
     var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
     chart.setOption(option, { notMerge: true });
-    // 强制 zoom 到最近数据（微延迟等渲染完成）
-    if (!showMinute) {
-      setTimeout(function() {
-        chart.dispatchAction({ type: 'dataZoom', start: 90, end: 100 });
-      }, 50);
-    }
   }
 
   // ─── 初始化 ECharts ───
