@@ -96,6 +96,41 @@ window.MV.Kline = (function() {
         backgroundColor: C.card,
         borderColor: C.border,
         textStyle: { color: C.text, fontSize: 12 },
+        formatter: function(params) {
+          if (!params || !params.length) return '';
+          var date = params[0].axisValue;
+          var html = '<div style="font-weight:600;margin-bottom:5px;color:' + C.gold + '">' + date + '</div>';
+          for (var i = 0; i < params.length; i++) {
+            var p = params[i];
+            var sn = p.seriesName;
+            var v = p.value;
+            var mk = p.marker;
+            if (sn === 'K线') {
+              // v = [open, close, low, high]
+              html += mk + ' <b>K线</b><br/>';
+              html += '&nbsp;&nbsp;开盘: ' + (v[0] != null ? v[0].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;收盘: ' + (v[1] != null ? v[1].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;最高: ' + (v[3] != null ? v[3].toFixed(2) : '-') + '<br/>';
+              html += '&nbsp;&nbsp;最低: ' + (v[2] != null ? v[2].toFixed(2) : '-') + '<br/>';
+            } else if (sn.indexOf('MACD') === 0) {
+              // MACD 系列在一行显示
+              if (i === 0 || params[i-1].seriesName.indexOf('MACD') !== 0) {
+                var difV = '-', deaV = '-', histV = '-';
+                for (var j = i; j < params.length; j++) {
+                  var pj = params[j];
+                  if (pj.seriesName === 'MACD快线') difV = (pj.value != null ? pj.value.toFixed(4) : '不足');
+                  if (pj.seriesName === 'MACD慢线') deaV = (pj.value != null ? pj.value.toFixed(4) : '不足');
+                  if (pj.seriesName === 'MACD柱') histV = (pj.value != null ? pj.value.toFixed(4) : '不足');
+                }
+                html += mk + ' <b>MACD</b>&nbsp; DIF:' + difV + ' / DEA:' + deaV + ' / HIST:' + histV + '<br/>';
+              }
+            } else {
+              var label = v != null ? (typeof v === 'number' ? v.toFixed(2) : v) : '数据不足';
+              html += mk + ' ' + sn + ': ' + label + '<br/>';
+            }
+          }
+          return html;
+        },
       },
 
       axisPointer: {
@@ -174,12 +209,12 @@ window.MV.Kline = (function() {
 
     // ── 主图：MA 线 ──
     var maDefs = [
-      { key: 'MA5',   name: 'MA5',   color: C.ma5,   lineWidth: 1 },
-      { key: 'MA10',  name: 'MA10',  color: C.ma10,  lineWidth: 1 },
-      { key: 'MA20',  name: 'MA20',  color: C.ma20,  lineWidth: 1 },
-      { key: 'MA60',  name: 'MA60',  color: C.ma60,  lineWidth: 1 },
-      { key: 'MA120', name: 'MA120', color: C.ma120, lineWidth: 1 },
-      { key: 'MA250', name: 'MA250', color: C.ma250, lineWidth: 1 },
+      { key: 'MA5',   name: 'MA5(5日)',     color: C.ma5,   lineWidth: 1 },
+      { key: 'MA10',  name: 'MA10(10日)',   color: C.ma10,  lineWidth: 1 },
+      { key: 'MA20',  name: 'MA20(20日)',   color: C.ma20,  lineWidth: 1 },
+      { key: 'MA60',  name: 'MA60(60日)',   color: C.ma60,  lineWidth: 1 },
+      { key: 'MA120', name: 'MA120(半年)',  color: C.ma120, lineWidth: 1 },
+      { key: 'MA250', name: 'MA250(年线)',  color: C.ma250, lineWidth: 1 },
     ];
     maDefs.forEach(function(d) {
       if (ma[d.key] && ma[d.key].length) {
@@ -195,21 +230,21 @@ window.MV.Kline = (function() {
     // ── 主图：BOLL 线（虚线）──
     if (boll.UPPER && boll.UPPER.length) {
       series.push({
-        name: 'BOLL-UP', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        name: '布林上轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.UPPER, symbol: 'none',
         lineStyle: { color: C.bollUp, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
     }
     if (boll.MID && boll.MID.length) {
       series.push({
-        name: 'BOLL-MID', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        name: '布林中轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.MID, symbol: 'none',
         lineStyle: { color: C.bollMid, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
     }
     if (boll.LOWER && boll.LOWER.length) {
       series.push({
-        name: 'BOLL-LOW', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        name: '布林下轨', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
         data: boll.LOWER, symbol: 'none',
         lineStyle: { color: C.bollLow, width: 0.8, type: 'dashed', opacity: 0.5 },
       });
@@ -219,7 +254,7 @@ window.MV.Kline = (function() {
     var volXIdx = showMACD ? 1 : 1;
     var volYIdx = showMACD ? 1 : 1;
     series.push({
-      name: 'VOL', type: 'bar', xAxisIndex: volXIdx, yAxisIndex: volYIdx,
+      name: '成交量', type: 'bar', xAxisIndex: volXIdx, yAxisIndex: volYIdx,
       data: volumes.map(function(v, i) {
         return { value: v, itemStyle: { color: volColors[i] } };
       }),
@@ -229,21 +264,21 @@ window.MV.Kline = (function() {
     if (showMACD) {
       if (macd.DIF && macd.DIF.length) {
         series.push({
-          name: 'DIF', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+          name: 'MACD快线', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
           data: macd.DIF, symbol: 'none',
           lineStyle: { color: C.dif, width: 1 },
         });
       }
       if (macd.DEA && macd.DEA.length) {
         series.push({
-          name: 'DEA', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+          name: 'MACD慢线', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
           data: macd.DEA, symbol: 'none',
           lineStyle: { color: C.dea, width: 1 },
         });
       }
       if (macdHist.length) {
         series.push({
-          name: 'HIST', type: 'bar', xAxisIndex: 2, yAxisIndex: 2,
+          name: 'MACD柱', type: 'bar', xAxisIndex: 2, yAxisIndex: 2,
           data: macdHist.map(function(v, i) {
             return { value: v, itemStyle: { color: histColors[i] } };
           }),
