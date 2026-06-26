@@ -335,8 +335,6 @@ document.addEventListener('DOMContentLoaded', () => {
       var td = tr.querySelector('[data-field="代码"]') || tr.querySelector('[data-field="交易对"]');
       if (!td) return;
       var code = td.getAttribute('data-code');
-      var nameTd = tr.querySelector('[data-field="名称"]');
-      MV._klineIncoming = nameTd ? nameTd.textContent.trim() : '';
       if (code) MV.goKline(MV.getTab(), code);
     });
   }

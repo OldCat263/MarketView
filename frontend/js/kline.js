@@ -51,7 +51,6 @@ window.MV.Kline = (function() {
   var showMinute = false;    // 分时图默认关
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
   var _yesterdayClose = null; // 昨收价（分时图 markLine）
-  var _currentDisplayName = ''; // 当前显示名称（dblclick/搜索传入）
   var _resizeHandler = null;
 
   // ─── 交易时段判断（北京时间 UTC+8）───
@@ -88,6 +87,23 @@ window.MV.Kline = (function() {
     var first = spotCode.charAt(0);
     var prefix = (first === '0' || first === '2' || first === '3') ? 'sz' : 'sh';
     return prefix + spotCode;
+  }
+
+  // ─── 从行情缓存查真实名称 ───
+  function _lookupName(module, code) {
+    if (!module || !code) return '';
+    var cache = MV.cacheGet(module, true);
+    if (!cache || !cache.rows) return '';
+    // stock/etf/index 已是全前缀（sh/sz），直接匹配
+    // hk/us 需去前缀匹配（spot 数据无前缀）
+    var spotCode = code;
+    if ((module === 'hk' || module === 'us') && code.length > 2) spotCode = code.substring(2);
+    for (var i = 0; i < cache.rows.length; i++) {
+      var r = cache.rows[i];
+      var c = r['代码'] || r['交易对'] || '';
+      if (c === spotCode || c === code) return r['名称'] || '';
+    }
+    return '';
   }
 
   // ─── 数据转换：API [date, open, close, high, low, vol, amt] → ECharts candlestick [o, c, l, h] ───
@@ -498,7 +514,7 @@ window.MV.Kline = (function() {
           var maxAge = isTradingHours(module) ? 60000 : Infinity;
           if (age < maxAge) {
             lastResp = cached.data;
-            var title1 = displayName || cached.data.name || code;
+            var title1 = displayName || _lookupName(module, code) || cached.data.name || code;
             document.getElementById('klineTitle').textContent = title1 + ' (' + code + ')';
             render(cached.data);
             return;
@@ -514,7 +530,7 @@ window.MV.Kline = (function() {
       var resp = await fetch(url).then(function(r) { return r.json(); });
       if (resp.error) { console.warn('Kline load error:', resp.error); return; }
       lastResp = resp;
-      var title2 = displayName || resp.name || code;
+      var title2 = displayName || _lookupName(module, code) || resp.name || code;
       document.getElementById('klineTitle').textContent = title2 + ' (' + code + ')';
       MV.cacheSet(cacheKey, resp);
       render(resp);
@@ -545,8 +561,6 @@ window.MV.Kline = (function() {
 
   // ─── 显隐 ───
   function show(module, code, name) {
-    if (!name && MV._klineIncoming) { name = MV._klineIncoming; MV._klineIncoming = null; }
-    _currentDisplayName = name || '';
     if (module) currentModule = module;
     // 显隐矩阵
     document.getElementById('grid').style.display = 'none';
@@ -623,7 +637,7 @@ window.MV.Kline = (function() {
           }
           if (minData && minData.data && minData.data.length > 0) {
             lastResp = minData;
-            document.getElementById('klineTitle').innerHTML = (_currentDisplayName || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+            document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
             render(minData);
             return;
           }
@@ -633,7 +647,7 @@ window.MV.Kline = (function() {
       }
       // 降级：用缓存 K线数据
       if (lastResp) {
-        document.getElementById('klineTitle').innerHTML = (_currentDisplayName || lastResp.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+        document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
         render(lastResp);
       }
     } else {
@@ -695,7 +709,7 @@ window.MV.Kline = (function() {
         }
         if (minData && minData.data && minData.data.length > 0) {
           lastResp = minData;
-          document.getElementById('klineTitle').innerHTML = (_currentDisplayName || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+          document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
           render(minData);
           return;
         }
@@ -704,7 +718,7 @@ window.MV.Kline = (function() {
       }
     }
     if (lastResp) {
-      document.getElementById('klineTitle').innerHTML = (_currentDisplayName || lastResp.name || currentCode) + ' (' + currentCode + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+      document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || currentCode) + ' (' + currentCode + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
       render(lastResp);
     }
   }
