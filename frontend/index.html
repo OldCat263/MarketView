@@ -7,6 +7,12 @@
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
+<!-- 导航栏 -->
+<nav class="nav">
+  <a class="nav-link active" id="navHome" onclick="MV.goHome()">首页</a>
+  <a class="nav-link" id="navKline" onclick="MV.goKline()">行情</a>
+</nav>
+
 <div class="container">
   <div class="header"><h1>MarketView</h1></div>
   <div class="toast" id="toast" style="display:none"></div>
@@ -42,6 +48,23 @@
     </div>
   </div>
 
+  <!-- K线视图 -->
+  <div class="kline-view" id="kline-view" style="display:none">
+    <div class="kline-toolbar">
+      <button class="back-btn" onclick="MV.goHome()" title="返回首页">←</button>
+      <span id="klineTitle" style="color:var(--text);font-weight:600;margin-left:8px"></span>
+      <span style="flex:1"></span>
+      <select id="klineCode" onchange="MV.Kline.switchCode()" style="display:none"></select>
+      <select id="klinePeriod" onchange="MV.Kline.switchPeriod()">
+        <option value="1m">1分</option><option value="5m">5分</option><option value="15m">15分</option>
+        <option value="30m">30分</option><option value="60m">60分</option><option value="1d" selected>日K</option>
+        <option value="1w">周K</option><option value="1M">月K</option>
+      </select>
+      <label class="macd-toggle"><input type="checkbox" id="macdToggle" onchange="MV.Kline.toggleMACD()">MACD</label>
+    </div>
+    <div class="kline-chart-wrap" id="kline-chart"></div>
+  </div>
+
   <div class="first-notice" id="firstNotice" style="display:none">
     <div class="progress-wrap"><div class="progress-bar" id="loadBar"></div></div>
     <div class="progress-text" id="loadStatus">正在加载...</div>
@@ -49,6 +72,7 @@
   <div class="timestamp" id="globalStamp"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/modules/crypto.js"></script>
 <script src="js/modules/stock.js"></script>
@@ -57,6 +81,7 @@
 <script src="js/modules/us.js"></script>
 <script src="js/modules/index_mod.js"></script>
 <script src="js/modules/news.js"></script>
+<script src="js/kline.js"></script>
 <script>
 (function() {
   let html = '';

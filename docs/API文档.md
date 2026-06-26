@@ -268,7 +268,7 @@ GET /api/kline/{module}/{code}?period=1d&count=750
 | name | string | 股票名称 |
 | module | string | 模块标识 |
 | period | string | 周期 |
-| data | array | K线数组 `[[date, o, c, l, h, v, amt], ...]` |
+| data | array | K线数组 `[[date, o, c, h, l, v, amt], ...]` |
 | ma | object | MA5/10/20/60/120/250（纯 Python 计算）|
 | boll | object | BOLL(20/2) 的 UP/MID/LOW 三轨 |
 | macd | object | MACD(12/26/9) 的 DIF/DEA/HIST |
