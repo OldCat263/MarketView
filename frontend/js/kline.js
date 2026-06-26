@@ -45,9 +45,12 @@ window.MV.Kline = (function() {
   // ─── 内部状态 ───
   var chart = null;
   var currentModule = 'stock';
+  var currentCode = '';
   var currentPeriod = '1d';
   var showMACD = false;      // MACD 默认关
+  var showMinute = false;    // 分时图默认关
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
+  var _yesterdayClose = null; // 昨收价（分时图 markLine）
   var _resizeHandler = null;
 
   // ─── 交易时段判断（北京时间 UTC+8）───
@@ -117,7 +120,7 @@ window.MV.Kline = (function() {
 
     // ─── 基础轴配置 ───
     var baseAxisLabel = { color: C.dim, fontSize: 11 };
-    var baseSplitLine = { lineStyle: { color: C.border, type: 'dashed', opacity: 0.3 } };
+    var baseSplitLine = { lineStyle: { color: C.border, type: 'dashed', opacity: 0.12 } };
 
     var option = {
       backgroundColor: C.bg,
@@ -202,16 +205,16 @@ window.MV.Kline = (function() {
 
       yAxis: showMACD ? [
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'left' },
+          axisLabel: baseAxisLabel, position: 'right' },
         { gridIndex: 1, scale: true, splitLine: { show: false },
-          axisLabel: { color: C.dim, fontSize: 10 }, position: 'left' },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
         { gridIndex: 2, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'left' },
+          axisLabel: baseAxisLabel, position: 'right' },
       ] : [
         { gridIndex: 0, scale: true, splitLine: baseSplitLine,
-          axisLabel: baseAxisLabel, position: 'left' },
+          axisLabel: baseAxisLabel, position: 'right' },
         { gridIndex: 1, scale: true, splitLine: { show: false },
-          axisLabel: { color: C.dim, fontSize: 10 }, position: 'left' },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
       ],
 
       dataZoom: [
@@ -235,6 +238,8 @@ window.MV.Kline = (function() {
     series.push({
       name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
       data: ohlc,
+      barMaxWidth: 20,
+      barMinWidth: 4,
       itemStyle: {
         color: C.up, color0: C.down,
         borderColor: C.up, borderColor0: C.down,
@@ -324,6 +329,132 @@ window.MV.Kline = (function() {
     return series;
   }
 
+  // ─── 分时图 Option ───
+  function buildMinuteOption(resp, yesterdayClose) {
+    var rows = resp.data || [];
+    // x 轴 HH:MM
+    var times = rows.map(function(r) {
+      var dt = r[0];
+      return dt.length >= 16 ? dt.substring(11, 16) : dt;
+    });
+    var closes = rows.map(function(r) { return r[2]; });  // 收盘价
+    var volumes = rows.map(function(r) { return r[5]; });
+
+    // 涨跌方向：最后价 vs 首价
+    var lastClose = closes.length > 0 ? closes[closes.length - 1] : 0;
+    var firstClose = closes.length > 0 ? closes[0] : 0;
+    var isUp = lastClose >= firstClose;
+    var lineColor = isUp ? C.up : C.down;
+
+    // 成交量涨跌染色
+    var volColors = rows.map(function(r) {
+      return r[2] >= r[1] ? C.up : C.down;
+    });
+
+    var axisLabel = { color: C.dim, fontSize: 11 };
+    var splitLine = { lineStyle: { color: C.border, type: 'dashed', opacity: 0.12 } };
+
+    var option = {
+      backgroundColor: C.bg,
+      animation: true,
+      animationDuration: 200,
+
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: C.card,
+        borderColor: C.border,
+        textStyle: { color: C.text, fontSize: 12 },
+        formatter: function(params) {
+          if (!params || !params.length) return '';
+          var t = params[0].axisValue;
+          var html = '<div style="font-weight:600;margin-bottom:4px;color:' + C.gold + '">' + t + '</div>';
+          for (var i = 0; i < params.length; i++) {
+            var p = params[i];
+            var v = p.value;
+            var mk = p.marker;
+            if (p.seriesName === '价格') {
+              html += mk + ' 价格: ' + (v != null ? v.toFixed(2) : '-') + '<br/>';
+            } else if (p.seriesName === '昨收') {
+              html += mk + ' 昨收: ' + (v != null ? v.toFixed(2) : '-') + '<br/>';
+            } else if (p.seriesName === '成交量') {
+              html += mk + ' 成交量: ' + (v != null ? v : '-') + '<br/>';
+            }
+          }
+          return html;
+        },
+      },
+
+      grid: [
+        { left: '8%', right: '2%', top: '5%', height: '66%' },
+        { left: '8%', right: '2%', top: '77%', height: '18%' },
+      ],
+
+      xAxis: [
+        { gridIndex: 0, type: 'category', data: times, axisLabel: axisLabel,
+          axisLine: { lineStyle: { color: C.border } },
+          axisTick: { show: false }, splitLine: { show: false } },
+        { gridIndex: 1, type: 'category', data: times, axisLabel: { show: false },
+          axisTick: { show: false }, splitLine: { show: false } },
+      ],
+
+      yAxis: [
+        { gridIndex: 0, scale: true, splitLine: splitLine,
+          axisLabel: axisLabel, position: 'right' },
+        { gridIndex: 1, scale: true, splitLine: { show: false },
+          axisLabel: { color: C.dim, fontSize: 10 }, position: 'right' },
+      ],
+
+      dataZoom: [
+        { type: 'inside', xAxisIndex: [0,1], start: 0, end: 100 },
+      ],
+
+      series: [
+        {
+          name: '价格', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+          data: closes, symbol: 'none',
+          lineStyle: { color: lineColor, width: 1.2 },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: lineColor === C.up ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.25)' },
+              { offset: 1, color: 'rgba(15,17,23,0)' },
+            ]),
+          },
+        },
+        {
+          name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
+          data: volumes.map(function(v, i) {
+            return { value: v, itemStyle: { color: volColors[i], opacity: 0.6 } };
+          }),
+        },
+      ],
+    };
+
+    // 昨收虚线 markLine
+    if (yesterdayClose != null) {
+      option.series[0].markLine = {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: C.gold, type: 'dashed', width: 0.8, opacity: 0.7 },
+        label: { show: true, position: 'end', color: C.gold, fontSize: 10,
+          formatter: '昨收 ' + yesterdayClose.toFixed(2) },
+        data: [{ yAxis: yesterdayClose }],
+      };
+      // 加一条透明参考线 series
+      option.series.push({
+        name: '昨收', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+        data: [], symbol: 'none',
+        lineStyle: { opacity: 0 },
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { color: C.gold, type: 'dashed', width: 0.8, opacity: 0.7 },
+          data: [{ yAxis: yesterdayClose }],
+        },
+      });
+    }
+
+    return option;
+  }
+
   // ─── 加载数据 ───
   // force=true 时跳过缓存（手动切周期/代码）
   // module + code 参数化：code 可选，无则从 KL_NAMES 取默认
@@ -338,6 +469,7 @@ window.MV.Kline = (function() {
       code = inferCode(module, code);
     }
     currentModule = module;
+    currentCode = code;
     var cacheKey = 'kl_' + module + '_' + code + '_' + currentPeriod;
 
     // ── 读缓存 ──
@@ -374,11 +506,11 @@ window.MV.Kline = (function() {
     }
   }
 
-  // ─── 渲染图表 ───
+  // ─── 渲染图表（分派 K线/分时）───
   function render(resp) {
     if (!chart) initChart();
     if (!chart) return;
-    var option = buildOption(resp);
+    var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
     chart.setOption(option, { notMerge: true });
   }
 
@@ -406,8 +538,12 @@ window.MV.Kline = (function() {
     var nk = document.getElementById('navKline');
     if (nh) { nh.classList.remove('active'); }
     if (nk) { nk.classList.add('active'); }
-    // 更新周期选择
+    // 更新周期选择 + 分时按钮
     document.getElementById('klinePeriod').value = currentPeriod;
+    showMinute = false;
+    _yesterdayClose = null;
+    var mb = document.getElementById('minuteBtn');
+    if (mb) mb.textContent = '分时';
     // MACD 复选框
     document.getElementById('macdToggle').checked = showMACD;
     // 清空搜索框
@@ -435,10 +571,123 @@ window.MV.Kline = (function() {
     if (lastResp) render(lastResp);
   }
 
+  // ─── 分时图切换 ───
+  async function toggleMinute() {
+    showMinute = !showMinute;
+    var btn = document.getElementById('minuteBtn');
+    var perSel = document.getElementById('klinePeriod');
+
+    if (showMinute) {
+      if (btn) btn.textContent = 'K线';
+      if (perSel) perSel.value = '1m';
+      currentPeriod = '1m';
+
+      // 并行 fetch 1m + 1d，取昨收
+      if (currentCode) {
+        try {
+          var code = currentCode;
+          var mod = currentModule;
+          var url1m = MV.API + '/api/kline/' + mod + '/' + code + '?period=1m&count=240';
+          var url1d = MV.API + '/api/kline/' + mod + '/' + code + '?period=1d&count=2';
+          var results = await Promise.all([
+            fetch(url1m).then(function(r) { return r.json(); }),
+            fetch(url1d).then(function(r) { return r.json(); }),
+          ]);
+          var minData = results[0];
+          var dayData = results[1];
+          // 取倒数第二根日K close 为昨收
+          var dayRows = dayData.data || [];
+          if (dayRows.length >= 2) {
+            _yesterdayClose = parseFloat(dayRows[dayRows.length - 2][2]);
+          } else if (dayRows.length === 1) {
+            _yesterdayClose = parseFloat(dayRows[0][2]);
+          }
+          if (minData && minData.data && minData.data.length > 0) {
+            lastResp = minData;
+            document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时';
+            render(minData);
+            return;
+          }
+        } catch (e) {
+          console.warn('Minute fetch failed:', e);
+        }
+      }
+      // 降级：用缓存 K线数据
+      if (lastResp) {
+        document.getElementById('klineTitle').textContent = (lastResp.name || code) + ' (' + code + ') 分时';
+        render(lastResp);
+      }
+    } else {
+      showMACD = false;
+      document.getElementById('macdToggle').checked = false;
+      if (btn) btn.textContent = '分时';
+      _yesterdayClose = null;
+      currentPeriod = '1d';
+      if (perSel) perSel.value = '1d';
+      // 重新拉日K（不依赖缓存中残留的分时数据）
+      loadData(currentModule, currentCode, true);
+    }
+  }
+
   // ─── 周期切换 ───
   function switchPeriod() {
     currentPeriod = document.getElementById('klinePeriod').value;
-    loadData(currentModule, null, true);  // 手动切周期 → 跳过缓存
+    // 周期联动：1m/5m → 分时，≥15m → K线
+    var isMinutePeriod = (currentPeriod === '1m' || currentPeriod === '5m');
+    if (isMinutePeriod && !showMinute) {
+      // 自动切到分时模式
+      showMinute = true;
+      var btn = document.getElementById('minuteBtn');
+      if (btn) btn.textContent = 'K线';
+      document.getElementById('macdToggle').checked = false;
+      showMACD = false;
+      // 取昨收 + 加载分钟数据
+      toggleMinuteLoad();
+      return;
+    } else if (!isMinutePeriod && showMinute) {
+      // 自动切回 K线模式
+      showMinute = false;
+      _yesterdayClose = null;
+      var btn2 = document.getElementById('minuteBtn');
+      if (btn2) btn2.textContent = '分时';
+    }
+    loadData(currentModule, currentCode, true);
+  }
+
+  // toggleMinute 的子步骤：仅加载数据（不翻转 showMinute）
+  async function toggleMinuteLoad() {
+    if (currentCode) {
+      try {
+        var code = currentCode;
+        var mod = currentModule;
+        var url1m = MV.API + '/api/kline/' + mod + '/' + code + '?period=1m&count=240';
+        var url1d = MV.API + '/api/kline/' + mod + '/' + code + '?period=1d&count=2';
+        var results = await Promise.all([
+          fetch(url1m).then(function(r) { return r.json(); }),
+          fetch(url1d).then(function(r) { return r.json(); }),
+        ]);
+        var minData = results[0];
+        var dayData = results[1];
+        var dayRows = dayData.data || [];
+        if (dayRows.length >= 2) {
+          _yesterdayClose = parseFloat(dayRows[dayRows.length - 2][2]);
+        } else if (dayRows.length === 1) {
+          _yesterdayClose = parseFloat(dayRows[0][2]);
+        }
+        if (minData && minData.data && minData.data.length > 0) {
+          lastResp = minData;
+          document.getElementById('klineTitle').textContent = (minData.name || code) + ' (' + code + ') 分时';
+          render(minData);
+          return;
+        }
+      } catch (e) {
+        console.warn('Minute fetch failed:', e);
+      }
+    }
+    if (lastResp) {
+      document.getElementById('klineTitle').textContent = (lastResp.name || currentCode) + ' (' + currentCode + ') 分时';
+      render(lastResp);
+    }
   }
 
   // ─── 搜索：构建代码索引 ───
@@ -534,6 +783,7 @@ window.MV.Kline = (function() {
     show: show,
     _hide: _hide,
     toggleMACD: toggleMACD,
+    toggleMinute: toggleMinute,
     switchPeriod: switchPeriod,
     onSearchInput: onSearchInput,
     selectCode: selectCode,

@@ -63,6 +63,8 @@ tr{cursor:pointer;transition:background .15s}tr:hover{background:rgba(245,158,11
 .kline-toolbar select:focus{border-color:var(--gold)}
 .kline-chart-wrap{flex:1;min-height:500px;width:100%}
 .macd-toggle{display:flex;align-items:center;gap:4px;color:var(--dim);font-size:12px;cursor:pointer;user-select:none}
+#minuteBtn{padding:4px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;cursor:pointer;white-space:nowrap;transition:all .2s}
+#minuteBtn:hover{border-color:var(--gold);color:var(--gold)}
 .macd-toggle input{cursor:pointer}
 .kline-legend{color:var(--dim);font-size:11px}
 .kline-search-wrap{position:relative;flex:1;max-width:260px}
