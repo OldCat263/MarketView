@@ -73,6 +73,18 @@ window.MV.Kline = (function() {
     return t >= 930 && t < 1500;
   }
 
+  // ─── 前缀推断：spot 代码（无前缀）→ K-line API 代码（有前缀）───
+  function inferCode(module, spotCode) {
+    if (!spotCode) return spotCode;
+    if (module === 'hk') return 'hk' + spotCode;
+    if (module === 'us') return 'us' + spotCode;
+    if (module === 'crypto') return spotCode.indexOf('USDT') >= 0 ? spotCode : spotCode + 'USDT';
+    // stock/etf/index: 首字符 0/2/3 → sz，否则 sh
+    var first = spotCode.charAt(0);
+    var prefix = (first === '0' || first === '2' || first === '3') ? 'sz' : 'sh';
+    return prefix + spotCode;
+  }
+
   // ─── 数据转换：API [date, open, close, high, low, vol, amt] → ECharts candlestick [o, c, l, h] ───
   function toCandlestick(rows) {
     var result = [];
@@ -314,24 +326,31 @@ window.MV.Kline = (function() {
 
   // ─── 加载数据 ───
   // force=true 时跳过缓存（手动切周期/代码）
-  async function loadData(force) {
-    var info = KL_NAMES[currentModule];
-    if (!info) return;
-    var cacheKey = 'kl_' + currentModule + '_' + info.code + '_' + currentPeriod;
+  // module + code 参数化：code 可选，无则从 KL_NAMES 取默认
+  async function loadData(module, code, force) {
+    if (!module) module = currentModule;
+    if (!code) {
+      var def = KL_NAMES[module];
+      if (!def) return;
+      code = def.code;
+    } else {
+      // 推断前缀（spot 代码可能无前缀）
+      code = inferCode(module, code);
+    }
+    currentModule = module;
+    var cacheKey = 'kl_' + module + '_' + code + '_' + currentPeriod;
 
     // ── 读缓存 ──
     if (!force) {
-      // 复用 core.js cacheGet 格式：sessionStorage key = 'mv_' + cacheKey
       try {
         var raw = sessionStorage.getItem('mv_' + cacheKey);
         if (raw) {
           var cached = JSON.parse(raw);
           var age = Date.now() - cached.ts;
-          // 交易时段 TTL=60s，非交易时段无限
-          var maxAge = isTradingHours(currentModule) ? 60000 : Infinity;
+          var maxAge = isTradingHours(module) ? 60000 : Infinity;
           if (age < maxAge) {
             lastResp = cached.data;
-            document.getElementById('klineTitle').textContent = info.name + ' (' + info.code + ')';
+            document.getElementById('klineTitle').textContent = (cached.data.name || code) + ' (' + code + ')';
             render(cached.data);
             return;
           }
@@ -340,14 +359,14 @@ window.MV.Kline = (function() {
     }
 
     // ── fetch 数据 ──
-    var url = MV.API + '/api/kline/' + currentModule + '/' + info.code +
+    var url = MV.API + '/api/kline/' + module + '/' + code +
               '?period=' + currentPeriod + '&count=750';
     try {
       var resp = await fetch(url).then(function(r) { return r.json(); });
       if (resp.error) { console.warn('Kline load error:', resp.error); return; }
       lastResp = resp;
-      document.getElementById('klineTitle').textContent = info.name + ' (' + info.code + ')';
-      // 写缓存（复用 core.js cacheSet 格式：{data, ts} 存在 'mv_' + key）
+      var displayName = resp.name || code;
+      document.getElementById('klineTitle').textContent = displayName + ' (' + code + ')';
       MV.cacheSet(cacheKey, resp);
       render(resp);
     } catch (e) {
@@ -376,7 +395,7 @@ window.MV.Kline = (function() {
   }
 
   // ─── 显隐 ───
-  function show(module) {
+  function show(module, code) {
     if (module) currentModule = module;
     // 显隐矩阵
     document.getElementById('grid').style.display = 'none';
@@ -391,9 +410,14 @@ window.MV.Kline = (function() {
     document.getElementById('klinePeriod').value = currentPeriod;
     // MACD 复选框
     document.getElementById('macdToggle').checked = showMACD;
+    // 清空搜索框
+    var ks = document.getElementById('klineSearch');
+    if (ks) ks.value = code || '';
+    // 隐藏下拉
+    hideSuggest();
     // 初始化图表 + 加载数据
     if (!chart) initChart();
-    loadData();
+    loadData(currentModule, code);
   }
 
   function _hide() {
@@ -414,36 +438,96 @@ window.MV.Kline = (function() {
   // ─── 周期切换 ───
   function switchPeriod() {
     currentPeriod = document.getElementById('klinePeriod').value;
-    loadData(true);  // 手动切周期 → 跳过缓存
+    loadData(currentModule, null, true);  // 手动切周期 → 跳过缓存
   }
 
-  // ─── 代码切换（P2-3: 下拉选 6 模块默认代码）───
-  function switchCode() {
-    var sel = document.getElementById('klineCode');
-    if (sel && sel.value) {
-      currentModule = sel.value;
-      loadData(true);  // 手动切代码 → 跳过缓存
-    }
-  }
-
-  // ─── 填充代码下拉 ───
-  function populateCodeSelect() {
-    var sel = document.getElementById('klineCode');
-    if (!sel) return;
-    sel.innerHTML = '';
+  // ─── 搜索：构建代码索引 ───
+  function buildCodeIndex() {
+    var index = [];
+    var seen = {};
     MODULE_ORDER.forEach(function(m) {
-      var info = KL_NAMES[m];
-      if (!info) return;
-      var opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = info.name + ' (' + info.code + ')';
-      if (m === currentModule) opt.selected = true;
-      sel.appendChild(opt);
+      var cached = MV.cacheGet(m, true);
+      if (cached && cached.rows) {
+        cached.rows.forEach(function(row) {
+          var cd = row['代码'] || row['交易对'];
+          if (!cd || seen[cd]) return;
+          seen[cd] = true;
+          index.push({
+            code: cd,
+            name: row['名称'] || row['名称'] || cd,
+            module: m,
+          });
+        });
+      }
     });
+    if (index.length === 0) {
+      // fallback: 至少包含默认代码
+      MODULE_ORDER.forEach(function(m) {
+        var info = KL_NAMES[m];
+        if (info) index.push({code: info.code, name: info.name, module: m});
+      });
+    }
+    return index;
   }
 
-  // ─── 初始化 ───
-  populateCodeSelect();
+  // ─── 搜索输入 ───
+  function onSearchInput() {
+    var input = document.getElementById('klineSearch');
+    var sug = document.getElementById('klineSuggest');
+    if (!input || !sug) return;
+    var q = input.value.trim().toLowerCase();
+    if (q.length < 1) { sug.style.display = 'none'; return; }
+    var index = buildCodeIndex();
+    // 当前模块优先
+    index.sort(function(a, b) {
+      if (a.module === currentModule && b.module !== currentModule) return -1;
+      if (b.module === currentModule && a.module !== currentModule) return 1;
+      return 0;
+    });
+    var matches = [];
+    for (var i = 0; i < index.length && matches.length < 10; i++) {
+      var item = index[i];
+      if (item.code.toLowerCase().indexOf(q) >= 0 || item.name.toLowerCase().indexOf(q) >= 0) {
+        matches.push(item);
+      }
+    }
+    if (matches.length === 0) { sug.style.display = 'none'; return; }
+    var html = '';
+    matches.forEach(function(item) {
+      html += '<div class="kline-suggest-item" data-code="' + item.code +
+        '" data-module="' + item.module + '" data-name="' + item.name +
+        '" onclick="MV.Kline.selectCode(this)" onmouseenter="MV.Kline.highlightItem(this)">' +
+        '<span>' + item.name + '</span>' +
+        '<span class="ks-code">' + item.code + '</span></div>';
+    });
+    sug.innerHTML = html;
+    sug.style.display = 'block';
+  }
+
+  // ─── 选中建议项 ───
+  function selectCode(el) {
+    var module = el.getAttribute('data-module');
+    var code = el.getAttribute('data-code');
+    var name = el.getAttribute('data-name');
+    var input = document.getElementById('klineSearch');
+    if (input) input.value = name + ' (' + code + ')';
+    hideSuggest();
+    currentModule = module;
+    loadData(module, code, true);
+  }
+
+  // ─── 高亮建议项 ───
+  function highlightItem(el) {
+    var items = document.querySelectorAll('.kline-suggest-item');
+    for (var i = 0; i < items.length; i++) { items[i].classList.remove('active'); }
+    el.classList.add('active');
+  }
+
+  // ─── 隐藏下拉 ───
+  function hideSuggest() {
+    var sug = document.getElementById('klineSuggest');
+    if (sug) sug.style.display = 'none';
+  }
 
   // ─── 公开 API ───
   return {
@@ -451,10 +535,36 @@ window.MV.Kline = (function() {
     _hide: _hide,
     toggleMACD: toggleMACD,
     switchPeriod: switchPeriod,
-    switchCode: switchCode,
+    onSearchInput: onSearchInput,
+    selectCode: selectCode,
+    highlightItem: highlightItem,
     getModule: function() { return currentModule; },
   };
 })();
+
+// ─── 图表区点击 → 隐藏搜索下拉 ───
+document.addEventListener('DOMContentLoaded', function() {
+  var chartWrap = document.getElementById('kline-chart');
+  if (chartWrap) {
+    chartWrap.addEventListener('click', function() {
+      var sug = document.getElementById('klineSuggest');
+      if (sug) sug.style.display = 'none';
+    });
+  }
+});
+
+// ─── 搜索框回车 → 选第一个建议 ───
+document.addEventListener('DOMContentLoaded', function() {
+  var ks = document.getElementById('klineSearch');
+  if (ks) {
+    ks.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var first = document.querySelector('.kline-suggest-item');
+        if (first) MV.Kline.selectCode(first);
+      }
+    });
+  }
+});
 
 // ─── 导航入口（挂到 MV 上）───
 MV.goHome = function() {
@@ -467,6 +577,6 @@ MV.goHome = function() {
   if (nk) nk.classList.remove('active');
 };
 
-MV.goKline = function(module) {
-  MV.Kline.show(module || 'stock');
+MV.goKline = function(module, code) {
+  MV.Kline.show(module || 'stock', code);
 };

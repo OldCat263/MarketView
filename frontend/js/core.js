@@ -318,8 +318,24 @@ window.MV = (function() {
     loadModule, openModule, startModule, startCrypto, closePanel,
     preloadAll, goPage, doFilter, sort: doSort, showToast,
     getTab: () => tab,
+    getModuleRows: (m) => (ST[m] && ST[m].rows) ? ST[m].rows : [],
   };
 })();
 
 // 页面启动
-document.addEventListener('DOMContentLoaded', () => MV.preloadAll());
+document.addEventListener('DOMContentLoaded', () => {
+  MV.preloadAll();
+
+  // 表格双击 → 打开 K线
+  var tbody = document.getElementById('tbody');
+  if (tbody) {
+    tbody.addEventListener('dblclick', function(e) {
+      var tr = e.target.closest('tr');
+      if (!tr) return;
+      var td = tr.querySelector('[data-field="代码"]') || tr.querySelector('[data-field="交易对"]');
+      if (!td) return;
+      var code = td.getAttribute('data-code');
+      if (code) MV.goKline(tab, code);
+    });
+  }
+});

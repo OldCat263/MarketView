@@ -65,6 +65,14 @@ tr{cursor:pointer;transition:background .15s}tr:hover{background:rgba(245,158,11
 .macd-toggle{display:flex;align-items:center;gap:4px;color:var(--dim);font-size:12px;cursor:pointer;user-select:none}
 .macd-toggle input{cursor:pointer}
 .kline-legend{color:var(--dim);font-size:11px}
+.kline-search-wrap{position:relative;flex:1;max-width:260px}
+.kline-search-wrap input{width:100%;padding:6px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none}
+.kline-search-wrap input:focus{border-color:var(--gold)}
+.kline-search-wrap input::placeholder{color:var(--dim)}
+.kline-suggest{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:0 0 8px 8px;max-height:300px;overflow-y:auto;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+.kline-suggest-item{padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);border-bottom:1px solid rgba(42,45,55,.3);display:flex;justify-content:space-between}
+.kline-suggest-item:hover,.kline-suggest-item.active{background:rgba(245,158,11,.12);color:var(--gold)}
+.kline-suggest-item .ks-code{color:var(--dim);font-size:11px}
 
 @media(max-width:768px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}.card{padding:16px 12px}.bar input{font-size:12px}table{font-size:11px}th,td{padding:5px 4px}}
 @media(max-width:480px){.grid{grid-template-columns:repeat(2,1fr)}.header{padding:20px 0 14px}}
