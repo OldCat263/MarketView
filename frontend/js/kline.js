@@ -80,10 +80,11 @@ window.MV.Kline = (function() {
   // ─── 前缀推断：spot 代码（无前缀）→ K-line API 代码（有前缀）───
   function inferCode(module, spotCode) {
     if (!spotCode) return spotCode;
-    if (module === 'hk') return 'hk' + spotCode;
-    if (module === 'us') return 'us' + spotCode;
+    if (module === 'hk') return spotCode.indexOf('hk') === 0 ? spotCode : 'hk' + spotCode;
+    if (module === 'us') return spotCode.indexOf('us') === 0 ? spotCode : 'us' + spotCode;
     if (module === 'crypto') return spotCode.indexOf('USDT') >= 0 ? spotCode : spotCode + 'USDT';
-    // stock/etf/index: 首字符 0/2/3 → sz，否则 sh
+    // stock/etf/index: 已有 sh/sz 前缀 → 直接返回；否则首字符 0/2/3 → sz，其余 → sh
+    if (spotCode.indexOf('sh') === 0 || spotCode.indexOf('sz') === 0) return spotCode;
     var first = spotCode.charAt(0);
     var prefix = (first === '0' || first === '2' || first === '3') ? 'sz' : 'sh';
     return prefix + spotCode;
