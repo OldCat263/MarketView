@@ -61,4 +61,4 @@ python .trae/skills/mv-validator/scripts/mv_validate.py all  # 一键跑 6 模�
 
 ---
 
-**版本**：V1.6.0.17 封版 / V1.7.0 K线 Step 1+2+3+4+4.5 完成（分时图+K线美化+UA测试，20 commits，8/8 全过）/ Step 5 待设计（K线 SSE 实时推送）
+**版本**：V1.6.0.17 封版 / V1.7.0 K线 Step 1+2+3+4+4.5+5 全部完成（分时图+K线美化+UA测试+K线 SSE 5s 实时推送，21 commits，8/8 全过）

@@ -314,6 +314,46 @@ done
 curl 'https://oldcat.site/api/kline/stock/sh600519?period=1d&count=10'
 ```
 
+### 9.1 K线 SSE 实时推送（V1.7.0 Step 5）
+
+```
+GET /api/stream/kline/{module}/{code}?period=1d
+```
+
+**端点**：`/api/stream/kline/{module}/{code}`
+
+| 参数 | 必须 | 默认 | 说明 |
+|------|------|------|------|
+| module | 是 | — | stock/etf/hk/us/index/crypto |
+| code | 是 | — | 股票代码（带市场前缀，如 sh600519）|
+| period | 否 | 1d | 1m/5m/15m/30m/60m/1d/1w/1M |
+
+**SSE 消息格式**（text/event-stream，每 5s 推送一次）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| candle | array | 最新一根 K线 `[date, O, C, H, L, V, Amt]`（蜡烛变化时推送）|
+| heartbeat | bool | `true` 表示心跳（蜡烛无变化时推送）|
+| error | string | 错误信息（fetch 异常时推送）|
+| ts | float | 服务端时间戳 |
+
+**行为**：
+- 每 5s 在线程池中 fetch 最新 5 根 K线，比较最新一根 hash
+- 蜡烛变化 → 推 `{candle: [date,O,C,H,L,V,Amt], ts}`
+- 蜡烛不变 → 推 `{heartbeat: true, ts}`（心跳模式）
+- 前端收到 candle → 更新 `lastResp.data` 最后一根 → `chart.setOption({notMerge: true}, animation: false)`
+- 前端收到 heartbeat → 跳过（不渲染）
+- SSE 断连 → 5s 自动重连
+
+**验证命令**：
+```bash
+# SSE 连接（6s 窗口，预期收到 candle 或 heartbeat）
+curl -N -m 6 'http://localhost:8000/api/stream/kline/stock/sh600519?period=1d' 2>&1 | head -10
+
+# 心跳（10s 窗口内应 ≥ 1 个 heartbeat）
+curl -N -m 10 'http://localhost:8000/api/stream/kline/stock/sh600519?period=1d' 2>&1 | grep -c heartbeat
+```
+
 ---
 
 ## 通用说明

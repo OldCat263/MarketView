@@ -229,6 +229,40 @@ def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750)
     except Exception as e:
         return JSONResponse({'error': str(e)}, status_code=500)
 
+# ── K线 SSE 实时推送（V1.7.0 Step 5）──
+@app.get('/api/stream/kline/{module}/{code}')
+async def stream_kline(module: str, code: str, period: str = '1d'):
+    """K线 SSE：每 5s 推送最新一根蜡烛（或心跳）。
+    fire-and-forget 模式：asyncio.to_thread 在线程池执行 fetch，不阻塞 event loop。
+    """
+    fn = KL_FN.get(module)
+    if not fn:
+        return JSONResponse({'error': f'unknown module: {module}'}, status_code=404)
+
+    async def gen():
+        import asyncio as _aio
+        last_hash = None
+        while True:
+            try:
+                # fire-and-forget：在线程池执行 fetch，不阻塞 event loop
+                rows = await _aio.to_thread(fn, code, period, 5)
+                if rows and len(rows) > 0:
+                    last = rows[-1]
+                    h = hash(str(last))
+                    if h != last_hash:
+                        last_hash = h
+                        yield f'data: {json.dumps({"candle": last, "ts": time.time()})}\n\n'
+                    else:
+                        yield f'data: {json.dumps({"heartbeat": True, "ts": time.time()})}\n\n'
+                else:
+                    yield f'data: {json.dumps({"heartbeat": True, "ts": time.time()})}\n\n'
+            except Exception as e:
+                yield f'data: {json.dumps({"error": str(e), "ts": time.time()})}\n\n'
+            await _aio.sleep(5)
+
+    return StreamingResponse(gen(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
 # ── SSE 分片推送 ──
 @app.get('/api/stream/{module}')
 async def stream_module(module: str):

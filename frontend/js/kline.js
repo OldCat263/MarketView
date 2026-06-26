@@ -52,6 +52,9 @@ window.MV.Kline = (function() {
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
   var _yesterdayClose = null; // 昨收价（分时图 markLine）
   var _resizeHandler = null;
+  var _klineSSE = null;        // K线 SSE EventSource
+  var _klineSSERetry = null;   // SSE 重连定时器
+  var _calibrateTimer = null;  // 30s/60s 全量校准定时器
 
   // ─── 交易时段判断（北京时间 UTC+8）───
   function isTradingHours(module) {
@@ -562,10 +565,11 @@ window.MV.Kline = (function() {
   }
 
   // ─── 渲染图表（分派 K线/分时）───
-  function render(resp) {
+  function render(resp, noAnimation) {
     if (!chart) initChart();
     if (!chart) return;
     var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
+    if (noAnimation) { option.animation = false; option.animationDuration = 0; }
     chart.setOption(option, { notMerge: true });
   }
 
@@ -609,9 +613,22 @@ window.MV.Kline = (function() {
     // 初始化图表 + 加载数据
     if (!chart) initChart();
     loadData(currentModule, code, false, name);
+    _connectKlineSSE();
+    // 全量校准 MA/BOLL/MACD（SSE 只推蜡烛，指标需定期重算）
+    // 1m 周期 60s（避免 30s 校准漏 30 根新K线），其他周期 30s
+    if (_calibrateTimer) clearInterval(_calibrateTimer);
+    _calibrateTimer = setInterval(function() {
+      if (currentModule && currentCode && !showMinute) {
+        loadData(currentModule, currentCode, true);
+      }
+    }, currentPeriod === '1m' ? 60000 : 30000);
   }
 
   function _hide() {
+    // 关闭 SSE + 定时器
+    if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
+    if (_klineSSERetry) { clearTimeout(_klineSSERetry); _klineSSERetry = null; }
+    if (_calibrateTimer) { clearInterval(_calibrateTimer); _calibrateTimer = null; }
     if (chart) { chart.dispose(); chart = null; }
     if (_resizeHandler) {
       window.removeEventListener('resize', _resizeHandler);
@@ -636,6 +653,10 @@ window.MV.Kline = (function() {
       if (btn) btn.textContent = 'K线';
       if (perSel) perSel.value = '1m';
       currentPeriod = '1m';
+      // 分时图不接 SSE
+      if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
+      if (_klineSSERetry) { clearTimeout(_klineSSERetry); _klineSSERetry = null; }
+      if (_calibrateTimer) { clearInterval(_calibrateTimer); _calibrateTimer = null; }
 
       // 并行 fetch 1m + 1d，取昨收
       if (currentCode) {
@@ -681,6 +702,7 @@ window.MV.Kline = (function() {
       if (perSel) perSel.value = '1d';
       // 重新拉日K（不依赖缓存中残留的分时数据）
       loadData(currentModule, currentCode, true);
+      _connectKlineSSE();  // 从分时切回 K线，重连 SSE
     }
   }
 
@@ -707,9 +729,49 @@ window.MV.Kline = (function() {
       if (btn2) btn2.textContent = '分时';
     }
     loadData(currentModule, currentCode, true);
+    _connectKlineSSE();  // 重连 SSE（period 已变）
   }
 
   // toggleMinute 的子步骤：仅加载数据（不翻转 showMinute）
+
+  // ─── K线 SSE 连接（V1.7.0 Step 5）───
+  function _connectKlineSSE() {
+    // 先关闭已有连接（防泄漏）
+    if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
+    if (_klineSSERetry) { clearTimeout(_klineSSERetry); _klineSSERetry = null; }
+
+    if (!currentModule || !currentCode) return;
+
+    var url = MV.API + '/api/stream/kline/' + currentModule + '/' + currentCode +
+              '?period=' + currentPeriod;
+    _klineSSE = new EventSource(url);
+
+    _klineSSE.onmessage = function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.heartbeat) return;  // 心跳跳过
+        if (msg.error) { console.warn('Kline SSE error:', msg.error); return; }
+        if (msg.candle && lastResp && lastResp.data) {
+          var candle = msg.candle;
+          var data = lastResp.data;
+          // 同日期 → 替换最后一根；新日期 → 追加
+          if (data.length > 0 && data[data.length - 1][0] === candle[0]) {
+            data[data.length - 1] = candle;
+          } else {
+            data.push(candle);
+          }
+          render(lastResp, true);  // noAnimation=true（避免每 5s 闪）
+        }
+      } catch(err) {}
+    };
+
+    _klineSSE.onerror = function() {
+      if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
+      _klineSSERetry = setTimeout(_connectKlineSSE, 5000);  // 5s 自动重连
+    };
+  }
+
+  // toggleMinute 的子步骤
   async function toggleMinuteLoad() {
     if (currentCode) {
       try {
@@ -818,6 +880,7 @@ window.MV.Kline = (function() {
     hideSuggest();
     currentModule = module;
     loadData(module, code, true, name);
+    _connectKlineSSE();  // 重连 SSE（code 已变）
   }
 
   // ─── 高亮建议项 ───
