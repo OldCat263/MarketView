@@ -512,6 +512,10 @@ window.MV.Kline = (function() {
     if (!chart) return;
     var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
     chart.setOption(option, { notMerge: true });
+    // 强制 zoom 到最近数据
+    if (!showMinute) {
+      chart.dispatchAction({ type: 'dataZoom', start: 90, end: 100 });
+    }
   }
 
   // ─── 初始化 ECharts ───
