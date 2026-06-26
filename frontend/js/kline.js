@@ -177,12 +177,12 @@ window.MV.Kline = (function() {
 
       // === MACD 关闭时 2 面板 / 开启时 3 面板 ===
       grid: showMACD ? [
-        { left: '8%', right: '2%', top: '5%', height: '52%' },
-        { left: '8%', right: '2%', top: '63%', height: '12%' },
-        { left: '8%', right: '2%', top: '78%', height: '17%' },
+        { left: '8%', right: '8%', top: '5%', height: '52%' },
+        { left: '8%', right: '8%', top: '63%', height: '12%' },
+        { left: '8%', right: '8%', top: '78%', height: '17%' },
       ] : [
-        { left: '8%', right: '2%', top: '5%', height: '68%' },
-        { left: '8%', right: '2%', top: '78%', height: '17%' },
+        { left: '8%', right: '8%', top: '5%', height: '68%' },
+        { left: '8%', right: '8%', top: '78%', height: '17%' },
       ],
 
       xAxis: showMACD ? [
@@ -385,8 +385,8 @@ window.MV.Kline = (function() {
       },
 
       grid: [
-        { left: '8%', right: '6%', top: '5%', height: '66%' },
-        { left: '8%', right: '6%', top: '77%', height: '18%' },
+        { left: '8%', right: '8%', top: '5%', height: '66%' },
+        { left: '8%', right: '8%', top: '77%', height: '18%' },
       ],
 
       xAxis: [
