@@ -31,7 +31,7 @@ function renderNews(rows, cols) {
       // 日期+时间（如含日期则显示 MM-DD HH:MM，否则原样）
       var timeDisplay = dt;
       if (dt.length >= 16) {
-        timeDisplay = dt.substring(5, 16);  // "MM-DD HH:MM"
+        timeDisplay = dt.substring(0, 16);  // "YYYY-MM-DD HH:MM"
       }
       var clickAttr = url ? ' onclick="window.open(\'' + url.replace(/'/g, "\\'") + '\')" style="cursor:pointer"' : '';
       html += '<div class="news-card"' + clickAttr + '>'
