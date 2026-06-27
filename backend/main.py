@@ -16,6 +16,7 @@ from fetcher import (crypto_status, get_crypto_json,
     fetch_stock_shard, fetch_etf_shard, fetch_hk_shard,
     fetch_us_shard, fetch_index_shard, fetch_crypto_shard, fetch_news_shard)
 from fetcher import kline, indicators
+from fetcher import chanlun, backtest, scorer, fundamentals, ai_analyzer
 
 # ── 分片配置 ──
 SHARD_CFG = {
@@ -26,6 +27,7 @@ SHARD_CFG = {
     'us':      {'n': 11, 'interval': 1},
     'index':   {'n': 1,  'interval': 3},
     'news':    {'n': 1,  'interval': 60},
+    'predict': {'n': 1,  'interval': 300},  # V1.9.0 预测模块，5min
 }
 SHARD_FN = {
     'stock': fetch_stock_shard, 'etf': fetch_etf_shard,
@@ -316,6 +318,120 @@ async def stream_kline(module: str, code: str, period: str = '1d'):
                 yield f'data: {json.dumps({"error": str(e), "ts": time.time()})}\n\n'
             await _aio.sleep(5)
 
+    return StreamingResponse(gen(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+# ── V1.9.0 智能预测 API ──
+
+_predict_cache = {}
+_predict_lock = threading.Lock()
+_predict_status = {}
+
+
+@app.get('/api/predict/analyze/{module}/{code}')
+def predict_analyze(module: str, code: str, period: str = '1d', count: int = 200, with_ai: bool = False):
+    """完整流水线单票分析。GET /api/predict/analyze/stock/sh600519?with_ai=true"""
+    fn = KL_FN.get(module)
+    if not fn:
+        return JSONResponse({'error': f'unknown module: {module}'}, status_code=404)
+    try:
+        rows = fn(code, period, count)
+        if not rows or len(rows) < 30:
+            return JSONResponse({'error': 'insufficient K-line data'}, status_code=400)
+        mode = 'full' if with_ai else 'quick'
+        result = scorer.score_single(module, code, rows, period, mode)
+        if with_ai:
+            result['ai'] = ai_analyzer.analyze(result)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+
+@app.get('/api/fundamental/{module}/{code}')
+def fundamental_endpoint(module: str, code: str):
+    """基本面数据。GET /api/fundamental/stock/sh600519"""
+    data = fundamentals.get_fundamentals(module, code)
+    return JSONResponse(data)
+
+
+@app.get('/api/predict/rank/{module}')
+def predict_rank(module: str, period: str = '1d', limit: int = 50):
+    """读缓存排行。GET /api/predict/rank/stock?limit=50"""
+    cache_key = f'rank_{module}_{period}'
+    with _predict_lock:
+        cached = _predict_cache.get(cache_key)
+    if cached:
+        data = cached['data'][:limit]
+        return JSONResponse({'data': data, 'cached_at': cached['ts'], 'ts': time.time()})
+    return JSONResponse({'data': [], 'message': 'no cached rank, POST /api/predict/batch first'})
+
+
+@app.post('/api/predict/batch/{module}')
+def predict_batch(module: str, period: str = '1d', pool_size: int = 300):
+    """触发批量计算。POST /api/predict/batch/stock?pool_size=300"""
+    import concurrent.futures
+    cache_key = f'rank_{module}_{period}'
+    _predict_status[cache_key] = {'progress': 0, 'total': min(pool_size, 300), 'status': 'running'}
+
+    def _do_batch():
+        try:
+            # 从 spot 缓存取代码列表
+            raw = _cached_get(module)
+            if raw == '[]':
+                _predict_status[cache_key] = {'progress': 0, 'total': 0, 'status': 'no_data'}
+                return
+            spot_data = json.loads(raw)
+            codes = []
+            for r in spot_data[:pool_size]:
+                c = r.get('代码', r.get('交易对', ''))
+                if c:
+                    codes.append(c)
+
+            results = scorer.rank_batch(module, codes, period, 'quick', max_workers=5)
+            with _predict_lock:
+                _predict_cache[cache_key] = {'data': results, 'ts': time.time()}
+            _predict_status[cache_key] = {'progress': len(results), 'total': len(codes), 'status': 'done'}
+
+            # SSE 推送
+            with _sse_lock:
+                for q in _sse_queues.get('predict', []):
+                    try:
+                        q.put_nowait({'type': 'rank_update', 'data': results[:50], 'ts': time.time()})
+                    except queue.Full:
+                        pass
+        except Exception as e:
+            _predict_status[cache_key] = {'progress': 0, 'total': 0, 'status': f'error: {e}'}
+
+    threading.Thread(target=_do_batch, daemon=True).start()
+    return JSONResponse({'message': 'batch started', 'cache_key': cache_key})
+
+
+@app.get('/api/predict/status/{module}')
+def predict_status(module: str, period: str = '1d'):
+    """批量进度。GET /api/predict/status/stock"""
+    cache_key = f'rank_{module}_{period}'
+    return JSONResponse(_predict_status.get(cache_key, {'status': 'not started'}))
+
+
+@app.get('/api/stream/predict/{module}')
+async def stream_predict(module: str):
+    """预测 SSE 推送。GET /api/stream/predict/stock"""
+    async def gen():
+        import asyncio as _aio
+        q = queue.Queue(maxsize=50)
+        with _sse_lock:
+            _sse_queues.setdefault('predict', []).append(q)
+        try:
+            while True:
+                try:
+                    msg = await _aio.to_thread(q.get, True, 30)
+                    yield f'data: {json.dumps(msg)}\n\n'
+                except queue.Empty:
+                    yield ': ping\n\n'
+        finally:
+            with _sse_lock:
+                if q in _sse_queues.get('predict', []):
+                    _sse_queues['predict'].remove(q)
     return StreamingResponse(gen(), media_type='text/event-stream',
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
