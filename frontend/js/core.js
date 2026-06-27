@@ -20,7 +20,7 @@ window.MV = (function() {
   // 中文数字格式化
   function formatChinese(v, col) {
     if (typeof v !== 'number') return String(v);
-    if (col.includes('涨跌幅') || col.includes('涨跌') || col.includes('振幅') || col.includes('换手率'))
+    if (col.includes('涨跌幅') || col.includes('振幅') || col.includes('换手率'))
       return v.toFixed(2) + '%';
     if (col.includes('成交额') || col.includes('成交量')) {
       if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + '亿';
