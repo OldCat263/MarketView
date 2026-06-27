@@ -39,6 +39,8 @@ _cache = {}        # key → {'shards': {i:{'data':[],'ts':0}}, 'cols':[]}
 _cache_lock = threading.Lock()
 _sse_queues = {m: [] for m in SHARD_CFG}  # list of per-client queues
 _sse_lock = threading.Lock()
+_kline_cache = {}
+_kline_lock = threading.Lock()
 
 def _cached_get(key):
     """读缓存：合并分片返回全量；支持 list 和 dict 两种数据结构"""
@@ -229,6 +231,13 @@ KL_NAMES = {
 
 @app.get('/api/kline/{module}/{code}')
 def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750):
+    cache_key = f'{module}_{code}_{period}_{count}'
+    # 读缓存（5min TTL）
+    with _kline_lock:
+        cached = _kline_cache.get(cache_key)
+        if cached and time.time() - cached['ts'] < 300:
+            return JSONResponse(cached['data'])
+    # 未命中 → 正常计算
     fn = KL_FN.get(module)
     if not fn:
         return JSONResponse({'error': f'unknown module: {module}'}, status_code=404)
@@ -246,10 +255,14 @@ def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750)
             if key == module:
                 name = def_name
                 break
-        return JSONResponse({
+        resp_data = {
             'code': code, 'name': name, 'module': module, 'period': period,
             'data': rows, 'ma': ma, 'boll': boll, 'macd': macd, 'ts': time.time(),
-        })
+        }
+        # 写缓存
+        with _kline_lock:
+            _kline_cache[cache_key] = {'data': resp_data, 'ts': time.time()}
+        return JSONResponse(resp_data)
     except Exception as e:
         return JSONResponse({'error': str(e)}, status_code=500)
 
