@@ -42,7 +42,7 @@ uvicorn main:app --workers 1
 | 模块 | 数据源（优先级从左到右） |
 |------|------------------------|
 | A股 | 腾讯 qt.gtimg.cn → 东财 → 新浪 |
-| ETF | 东财 fund_etf_spot_em → 同花顺 |
+| ETF | 腾讯 qt.gtimg.cn → 东财 fund_etf_spot_em → 同花顺 |
 | 港股 | 腾讯 → 东财 → 新浪 |
 | 美股 | 腾讯 qt.gtimg.cn（us 前缀）→ 东财 → 新浪 |
 | 指数 | 东财 → 新浪 |
@@ -61,4 +61,4 @@ python .trae/skills/mv-validator/scripts/mv_validate.py all  # 一键跑 6 模�
 
 ---
 
-**版本**：V1.6.0.17 封版 / V1.7.0 K线 Step 1+2+3+4+4.5+5 全部完成（分时图+K线美化+UA测试+K线 SSE 5s 实时推送，21 commits，8/8 全过）
+**版本**：V1.9.0 封版 / V1.8.5 性能+稳定性（9 项）/ V1.8.6 秒开体验（5 项）/ V1.9.0 P0 修复（7 项）/ 14 commits

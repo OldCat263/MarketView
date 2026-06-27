@@ -42,7 +42,7 @@
 |---|------|------------------------|------|------|
 | 1 | 🪙 加密货币 | Binance API（需代理，服务器无代理时显示未检测） | 全量实时 | ✅ |
 | 2 | 📈 A股 | 腾讯 qt.gtimg.cn → 东财 → 新浪 | 全量实时 | ✅ |
-| 3 | 📊 ETF | 东财 fund_etf_spot_em → 同花顺 | 全量实时 | ✅ |
+| 3 | 📊 ETF | 腾讯 qt.gtimg.cn → 东财 fund_etf_spot_em → 同花顺 | 全量实时 | ✅ |
 | 4 | 🌏 港股 | 腾讯 → 东财 stock_hk_spot_em → 新浪 stock_hk_spot | 全量实时 | ✅ |
 | 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪 | 全量实时 | ✅ |
 | 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
@@ -56,8 +56,9 @@
 - 字段：代码、名称、最新价、涨跌幅、涨跌额、成交量、成交额、最高、最低、今开、昨收、**振幅、换手率、量比**
 - 自动回退：东财 → 新浪
 
-### 港股：腾讯 → 东财 → 新浪（V1.6.0.1 改）
-- 腾讯为主源（10 只/请求）
+### 港股：腾讯 → 东财 → 新浪（V1.8.5 加速）
+- 腾讯为主源（50 只/请求，6 线程并发，< 15s）
+- 代码列表 24h 内存缓存
 - 东财 AkShare `stock_hk_spot_em` 冷启动 ~2 分钟
 - 新浪 `stock_hk_spot` 兜底
 - 多源 fallback 解决 RemoteDisconnected 导致 0 行
@@ -75,10 +76,10 @@
 - 前端卡片流渲染，时间倒序，搜索过滤
 - SSE 全量替换（非 diff）：新闻无"代码"字段，`_connectSSE` 加 `renderMode==='news'` 分支全量替换，不影响其他 6 模块
 
-### ETF/美股/指数：AkShare 自动切换
+### ETF/美股/指数：腾讯优先 + AkShare 备选（V1.8.5 加速）
 - 所有模块均含数据源缓存，首次找到可用源后直接复用
-- ETF：东财 fund_etf_spot_em → 同花顺
-- 美股：腾讯 qt.gtimg.cn（us 前缀，17209 条）→ 东财 → 新浪
+- ETF：腾讯 qt.gtimg.cn（50 只/请求，6 线程并发）→ 东财 fund_etf_spot_em → 同花顺
+- 美股：腾讯 qt.gtimg.cn（us 前缀，17209 条）→ 东财 → 新浪；**代码列表磁盘缓存** `.cache/us_codes.json`（重启 30s 恢复，原 8min）；**成交量降序排序**前 100 只热股优先拉取
 - 指数：东财 index_global_spot_em → 新浪（global 字段需海外网络，限流时为空）
 
 ### K线（V1.7.0+）：腾讯 K线接口 + Binance Klines
@@ -92,10 +93,14 @@
 - **分时图**（V1.7.0 Step 4.5）：分钟周期（1m/5m）自动切分时折线图（价格线+昨收虚线+VOL柱）；"分时"按钮手动切换；昨收并行 fetch 日K倒数第二根 close，失败静默降级
 
 ## 前端架构
-- **首页**：8 张卡片网格（3×3），首次访问显示进度条+加载时间
+- **首页**：8 张卡片网格（3×3），V1.8.6 懒惰加载（逐个后台加载，首页立即可交互，卡片逐个从 ⏳→✅）
+- **首屏快照**（V1.8.6）：后端并行预加载完成后写 `frontend/snapshot.json`，二次访问零 HTTP 渲染，SSE 连上后自动切实时
+- **模块就绪信号**（V1.8.6）：`/api/health` 返回每模块缓存状态，前端每 5s 轮询，已就绪卡片明亮(opacity=1)，未就绪半透明(0.5)
 - **数据视图**：表格 + 搜索 + 排序 + 翻页（50条/页）
 - **K线视图**（V1.7.0）：独立行情页（顶部导航"行情"入口） + ECharts 三联图（主+VOL+MACD）+ 分时图（价格折线+昨收虚线+VOL柱） + 8周期切换 + 搜索（spot数据索引+6模块跨搜）+ ECharts 原生图例点击显隐 MA/BOLL
+- **K线服务端缓存**（V1.8.6）：`_kline_cache` TTL 5min，同股票同周期二次请求 < 50ms
 - **实时推送**：SSE (`/api/stream/{module}`) + 分片滚动刷新，单元格 diff 闪动
+- **SSE 多客户端广播**（V1.8.5）：每连接独立 Queue，roller/heartbeat 广播到所有连接，多标签页同模块均收到数据
 - **心跳机制**（V1.6.0.6）：后端每 3s 推 `shard=-1` 空数据，前端刷新 `fetchTime` 维持绿点
 - **客户端缓存**：sessionStorage（前端状态恢复，**非实时数据源**，TTL 15s）
 - **模块隔离**：ST 对象独立存储每模块的 rows/cols/page/sort/search，互不干扰
@@ -114,23 +119,25 @@
 | 7 | **每次新需求必须同步更新 [设计师入门指南 §0](./docs/设计师入门指南.md) 的同步更新规则** |
 | 8 | **设计师：改完代码必须审批执行者改的技术文档（见 [设计师入门指南 §7.1](./docs/设计师入门指南.md) 4 检查点）** |
 
-## 模块加载速度（V1.6.0.1 实测 2026-06-25 / V1.6.0.6 心跳已加）
+## 模块加载速度（V1.8.5/V1.8.6 实测 2026-06-28）
 
 | 模块 | 首启 | 稳态滚动 | 数据量 | 数据源 |
 |------|------|----------|--------|--------|
 | 🪙 加密货币 | 0.5s（需代理） | — | 0（无代理） | Binance |
 | 📈 A股 | 63ms（并发） | 3s diff 闪动 + 3s 心跳 | 5528 条 | 腾讯 qt.gtimg.cn |
-| 📊 ETF | ~5s | 5s diff 闪动 + 3s 心跳 | 1516 条 | 东财 fund_etf_spot_em |
-| 🌏 港股 | ~2min（AkShare 冷启） | 5s diff 闪动 + 3s 心跳 | 2773 条 | 腾讯 + 东财/新浪 fallback |
-| 🇺🇸 美股 | ~8min（首拉代码列表） | 5s diff 闪动 + 3s 心跳 | 17209 条 | 腾讯 qt.gtimg.cn（us 前缀）|
+| 📊 ETF | **< 2s**（腾讯并发） | 3s diff 闪动 + 3s 心跳 | 1516 条 | 腾讯 qt.gtimg.cn |
+| 🌏 港股 | **< 30s 首次 / < 15s 后续** | 3s diff 闪动 + 3s 心跳 | 2773 条 | 腾讯 qt.gtimg.cn（并行）|
+| 🇺🇸 美股 | **~60s 首次 / 30s 重启**（磁盘缓存） | 3s diff 闪动 + 3s 心跳 | 17209 条 | 腾讯 qt.gtimg.cn（us 前缀）|
 | 📉 指数 | <1s | 3s diff 闪动 + 3s 心跳 | 562 条 | 新浪 index_spot_sina |
-| 📈 K线（V1.7.0） | 计划 < 2s | 5s 推最新 K线 | 750 根（日K） | 腾讯 K线 + Binance klines |
+| 📈 K线（V1.7.0） | **< 1s 首次 / < 50ms 缓存命中**（V1.8.6） | 5s 推最新 K线 | 750 根（日K） | 腾讯 K线 + Binance klines |
 | 📰 新闻（V1.8.0） | ~2s | 60s 推增量 | ~50 条 | 新浪财经 HTTP + 财新头条 fallback |
 
 > V1.6.0 起：分片缓存 + SSE 实时推送，浏览器侧看到的是**持续跳动**的实时行情，不再是 10s 静默刷新。
 > V1.6.0.6 起：每 3s 心跳维持客户端 liveStatus 绿点（即使数据静止也不变红）。
-> US 首次 ~8min 是 `_load_us_codes()` 下载 17636 条代码的一次性成本，后续秒级。
-> HK 首次 ~2min 是 AkShare `stock_hk_spot()` 冷启动一次成本，后续秒级。
+> V1.8.5 起：US 代码列表磁盘缓存 `.cache/us_codes.json`，重启 30s 恢复（原 8min）。
+> V1.8.5 起：HK/ETF 改用腾讯 qt.gtimg.cn 50 只/请求线程池并发（HK 2min→15s，ETF 5s→1s）。
+> V1.8.5 起：启动并行预加载（6 线程），最快 10s 可访问新闻/指数/ETF。
+> V1.8.6 起：首页懒惰加载 + 首屏快照，二次访问零等待渲染。
 
 ## 审计流程
 
@@ -319,6 +326,9 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.6.0.17 | 2026-06-26 | **V1.6.0.11~V1.6.0.16 文档同步 catch-up**（0e3a7ae）：11 文件（4 SKILL.md + CLAUDE.md + README.md + 5 docs）铁律 6→8 全文档对齐 + 4 份 Skill 必背补全 + 交叉引用 §x.y 精确化 + viewTime 三件套描述升级 + 项目状态更新。修复 API 文档 L271 data 列序 `l,h`→`h,l` 与实际后端对齐 |
 | V1.7.0 | 2026-06-26 | ✅ **K线图**（P2 体验优化）：**Step 1 ✅**（后端 kline.py+indicators.py+路由，2f1494e，6 模块 + MA/BOLL/MACD 指标 + MA5 对账 manual=1267.536=API）；**Step 2 ✅**（港股 K线 3 源 fallback tencent→eastmoney→sina + API 文档 §9 K线字段表补 4 处 + 故障排查 §5.6.1 港股 K线 0 行案例，8043d69，4 检查点全过）；**Step 3 ✅**（K线前端骨架 ECharts 接入 — index.html + main.css + kline.js，导航栏+容器+三联图+MA/BOLL/MACD+8周期+显隐矩阵+dispose重建策略，验收 5/5 K线接口全过）；**Step 4 ✅ 分钟K线数据源修复**（`_fetch_tencent_minute` — 换用 `ifzq.gtimg.cn` mkline 接口 [HTTPS 无 web 前缀]，解析路径 `data[code][m5]` 6 列格式，datetime YYYYMMDDHHmm→标准格式，amount 填 0；`_fetch_tencent` 加点判断自动分流分钟→mkline）；**Step 4.5 ✅ 分时图 + K线美化**（a296607~1c54de3，20 commits，UA 测试 8/8 全过，见下）；**Step 5 ✅ K线 SSE 5s 实时推送**（44040f5，见下）。独立行情页（顶部导航"行情"入口）+ ECharts 三联图（主+VOL+MACD）+ 分时图（价格折线+昨收虚线+VOL柱）+ 8周期切换 + 搜索（spot数据索引+6模块跨搜）+ ECharts 原生图例点击显隐 MA/BOLL。VOL 副图必开、MACD 默认关。指标纯 Python 计算（不引 pandas）。**附带发现 P1**：验收脚本 mv_validate.py 在 Windows GBK 终端 emoji 编码崩溃（V1.6.0.15 ✅ 已修） |
 | V1.8.0 | 2026-06-27 | **新闻模块**（模块 8 🚧→✅）：新增 `backend/fetcher/news.py`（新浪财经 HTTP 主源 + 财新头条 fallback，60s 刷新），`frontend/js/modules/news.js` 从 placeholder 改为真实模块（卡片流渲染），`core.js` 5 处适配（render 分支 / openModule 互斥 / preloadAll 去 skip / doFilter 分支 / SSE 全量替换 `renderMode==='news'`），`main.py` 加 `/api/news/spot` REST + `/api/stream/news` SSE，`main.css` 加新闻卡片样式，`index.html` 加 `#newsPanel` 容器。9 文件 +144/-16。铁律全合规。设计稿修订：原 AKShare `js_news` → 金十数据方案已失效（函数移除），改为新浪财经+财新头条。待审批员 Step 5 完整复审 |
+| V1.8.5 | 2026-06-28 | **9 项性能+稳定性修复**（6 文件 / ~145 行）：**性能 5 项** — ① 美股代码列表磁盘缓存 `.cache/us_codes.json`（8min→30s 重启）② 港股腾讯并行路径 50 只/请求 6 线程（2min→15s）③ ETF 代码缓存 + 腾讯并行（5s→1s）④ K线 `httpx.Client` 连接复用（省 TLS 握手 200-500ms）⑤ 启动并行预加载 `ThreadPoolExecutor(max_workers=6)`（串行→并行，最快 10s 可访问）。**P0 修复 4 项** — ⑥ SSE 多客户端广播（`_sse_queues` 从单 Queue 改为 per-client list，多标签页同模块均收到数据）⑦ flash 动画先 `render()` 重建 DOM 再对 新 DOM 加 class（修复 SSE diff 后 flash 元素被销毁）⑧ `calc_ma` 单循环逐元素判断（修复数据<周期时数组长度不匹配）⑨ `_to_records` 字符串列 `fillna('')` 不用 0（修复 NaN→整數 0 显示错误，兼容 pandas 3.0 StringDtype） |
+| V1.8.6 | 2026-06-28 | **5 项前端秒开 + 体验优化**（5 文件 / ~85 行）：**A** 前端懒惰加载 — `preloadAll()` 从 `Promise.all` 并行阻塞改为 for 循环逐个后台加载，首页立即可交互，卡片逐个 ⏳→✅。**B** K线服务端缓存 — `_kline_cache` TTL 5min，同股票同周期二次请求 < 50ms。**C** 美股热股预拉 — 代码按成交量降序排序，分片 0 优先拉前 100 只热门股（~3s 即显示）。**D** 首屏快照 — 后端并行预加载完成后写 `frontend/snapshot.json`，前端 `fetch` 快照零 HTTP 渲染，无快照降级走原逻辑。**E** 模块就绪信号 — `/api/health` 返回每模块缓存状态，前端每 5s 轮询，已就绪卡片明亮(opacity=1)，未就绪半透明(0.5) |
+| V1.9.0 | 2026-06-28 | **7 项 P0 修复**（前置应用，6 文件 / ~35 行）：① `kline.py` 分钟K线 `raw[-count:]` 取最新数据（原 `[:count]` 取最旧）② 加密日内K线 `fmt = '%Y-%m-%d %H:%M'` 含时分（原统一 `%Y-%m-%d` 丢时分）③ `utils.py` 先转时间列再 `fillna(0)` 数值列（原全局 `fillna(0)` 破坏 NaT）④ `__init__.py` 逐模块 `importlib.import_module` + try/except（原一行炸全炸）⑤ `core.js` `formatChinese` 删 `|| col.includes('涨跌')`（涨跌额误加 %）⑥ `kline.js` `_fmtClose()` 安全格式化昨收（`null.toFixed(2)` → TypeError 图表白屏）⑦ `requirements.txt` 补 `httpx>=0.27.0` |
 
 ### V1.7.0 Step 4.5 UA 测试修复（2026-06-26~27，9 commits，8/8 全过）
 
