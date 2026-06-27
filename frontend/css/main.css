@@ -87,5 +87,9 @@ tr{cursor:pointer;transition:background .15s}tr:hover{background:rgba(245,158,11
 .news-content{color:var(--text);font-size:13px;line-height:1.6;word-break:break-all}
 .news-empty{text-align:center;padding:60px 20px;color:var(--dim);font-size:14px}
 
+/* ─── 预测面板（V1.9.0）─── */
+.predict-tab-btn:hover{filter:brightness(1.2)}
+.predict-tab{max-height:calc(100vh - 320px);overflow-y:auto}
+
 @media(max-width:768px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}.card{padding:16px 12px}.bar input{font-size:12px}table{font-size:11px}th,td{padding:5px 4px}.news-card{padding:10px 12px}}
 @media(max-width:480px){.grid{grid-template-columns:repeat(2,1fr)}.header{padding:20px 0 14px}}
