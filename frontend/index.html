@@ -90,6 +90,30 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+// GitHub Pages：劫持所有 API 请求重定向到 oldcat.site（SSE + REST）
+if (window.location.hostname.includes('github.io')) {
+  (function() {
+    var BASE = 'https://oldcat.site';
+    function fixUrl(u) {
+      if (!u || typeof u !== 'string') return u;
+      if (u.startsWith('/api')) return BASE + u;
+      if (u.startsWith(window.location.origin + '/api')) return BASE + u.substring(window.location.origin.length);
+      return u;
+    }
+    // 劫持 fetch
+    var _f = window.fetch;
+    window.fetch = function(u, o) { return _f.call(window, fixUrl(u), o); };
+    // 劫持 EventSource
+    var _ES = window.EventSource;
+    window.EventSource = function(u, o) { return new _ES(fixUrl(u), o); };
+    window.EventSource.prototype = _ES.prototype;
+    window.EventSource.CONNECTING = _ES.CONNECTING;
+    window.EventSource.OPEN = _ES.OPEN;
+    window.EventSource.CLOSED = _ES.CLOSED;
+  })();
+}
+</script>
 <script src="js/core.js"></script>
 <script src="js/modules/crypto.js"></script>
 <script src="js/modules/stock.js"></script>
