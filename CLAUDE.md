@@ -185,6 +185,21 @@
 - [ ] 表格双击 → K线跳转正确（代码+名称）
 - [ ] K线 SSE 5s 推最新一根，ECharts 实时更新最后一根
 
+### 3.7 智能预测专项检查（V2.0.0+）
+- [ ] `/api/predict/analyze/stock/sh600519` 返回 chanlun/buy_points/sell_points 非空
+- [ ] 10 因子输出完整（Q1 动量~Q10 北向关联 + quant_score）
+- [ ] `/api/predict/analyze/stock/sh600519?with_ai=true` 返回 ai.analysis_text 非空
+- [ ] AI source 字段: pollinations→正常, zhipu→fallback, local→降级
+- [ ] 回测 9 指标输出（胜率/盈亏比/夏普/最大回撤/连亏/盈利因子/持有天数/样本量）
+- [ ] 历史相似场景 3 条含 result_30d
+- [ ] 多周期确认因子在 0.7~1.3 之间
+- [ ] 百分位排名 pct_total/pct_chanlun 在 0~100
+- [ ] POST `/api/predict/batch/stock` → GET `/api/predict/rank/stock` 返回排序数据
+- [ ] `/api/stream/predict/stock` SSE 推送正常
+- [ ] K线图 markPoint（买卖点箭头）+ markArea（中枢矩形）可见
+- [ ] 预测面板三 Tab 正常切换
+- [ ] 非A股模块基本面返回 available:false 不崩
+
 ### 4. 模块隔离检查
 - [ ] 切换模块后数据是否独立，不串台
 - [ ] 搜索/排序/翻页是否每个模块独立

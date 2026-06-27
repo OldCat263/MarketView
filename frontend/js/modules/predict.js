@@ -55,7 +55,7 @@ MV.register({
     html += _buildAIReport(predictState.aiData);
     html += '</div>';
 
-    document.getElementById('newsPanel').innerHTML = html;
+    document.getElementById('predictPanel').innerHTML = html;
 
     // 初始化 Tab 切换
     _initTabs();

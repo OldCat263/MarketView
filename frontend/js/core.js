@@ -127,6 +127,8 @@ window.MV = (function() {
     document.getElementById('empty').style.display = isNews ? 'none' : '';
     document.getElementById('pager').style.display = isNews ? 'none' : (rows.length > pageSize ? 'flex' : 'none');
     document.getElementById('newsPanel').style.display = isNews ? 'block' : 'none';
+    var isPredict = registry[m] && registry[m].renderMode === 'predict';
+    document.getElementById('predictPanel').style.display = isPredict ? 'block' : 'none';
     render();
   }
 
