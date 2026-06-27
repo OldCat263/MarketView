@@ -38,3 +38,4 @@ deploy*.py
 *.swp
 .claude/skills/
 frontend/snapshot.json
+deploy*.py

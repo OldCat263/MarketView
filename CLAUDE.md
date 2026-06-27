@@ -48,6 +48,7 @@
 | 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
 | 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图 + 分时图 + K线 SSE 5s 实时推送（V1.7.0 Step 1+2 ✅ / Step 3 ✅ / Step 4 ✅ / Step 4.5 ✅ / Step 5 ✅） | 全量实时 | ✅ |
 | 8 | 📰 新闻 | 新浪财经 HTTP（主源）→ 财新头条（fallback）（V1.8.0，60s 刷新，卡片流渲染） | 全量实时 | ✅ |
+| 9 | 🤖 智能预测 | 缠论+回测+10因子+基本面+AI（V1.9.0，按需即时+批量排行） | 全量实时 | ✅ |
 
 ## 数据源详解
 
@@ -329,6 +330,7 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.8.5 | 2026-06-28 | **9 项性能+稳定性修复**（6 文件 / ~145 行）：**性能 5 项** — ① 美股代码列表磁盘缓存 `.cache/us_codes.json`（8min→30s 重启）② 港股腾讯并行路径 50 只/请求 6 线程（2min→15s）③ ETF 代码缓存 + 腾讯并行（5s→1s）④ K线 `httpx.Client` 连接复用（省 TLS 握手 200-500ms）⑤ 启动并行预加载 `ThreadPoolExecutor(max_workers=6)`（串行→并行，最快 10s 可访问）。**P0 修复 4 项** — ⑥ SSE 多客户端广播（`_sse_queues` 从单 Queue 改为 per-client list，多标签页同模块均收到数据）⑦ flash 动画先 `render()` 重建 DOM 再对 新 DOM 加 class（修复 SSE diff 后 flash 元素被销毁）⑧ `calc_ma` 单循环逐元素判断（修复数据<周期时数组长度不匹配）⑨ `_to_records` 字符串列 `fillna('')` 不用 0（修复 NaN→整數 0 显示错误，兼容 pandas 3.0 StringDtype） |
 | V1.8.6 | 2026-06-28 | **5 项前端秒开 + 体验优化**（5 文件 / ~85 行）：**A** 前端懒惰加载 — `preloadAll()` 从 `Promise.all` 并行阻塞改为 for 循环逐个后台加载，首页立即可交互，卡片逐个 ⏳→✅。**B** K线服务端缓存 — `_kline_cache` TTL 5min，同股票同周期二次请求 < 50ms。**C** 美股热股预拉 — 代码按成交量降序排序，分片 0 优先拉前 100 只热门股（~3s 即显示）。**D** 首屏快照 — 后端并行预加载完成后写 `frontend/snapshot.json`，前端 `fetch` 快照零 HTTP 渲染，无快照降级走原逻辑。**E** 模块就绪信号 — `/api/health` 返回每模块缓存状态，前端每 5s 轮询，已就绪卡片明亮(opacity=1)，未就绪半透明(0.5) |
 | V1.9.0 | 2026-06-28 | **7 项 P0 修复**（前置应用，6 文件 / ~35 行）：① `kline.py` 分钟K线 `raw[-count:]` 取最新数据（原 `[:count]` 取最旧）② 加密日内K线 `fmt = '%Y-%m-%d %H:%M'` 含时分（原统一 `%Y-%m-%d` 丢时分）③ `utils.py` 先转时间列再 `fillna(0)` 数值列（原全局 `fillna(0)` 破坏 NaT）④ `__init__.py` 逐模块 `importlib.import_module` + try/except（原一行炸全炸）⑤ `core.js` `formatChinese` 删 `|| col.includes('涨跌')`（涨跌额误加 %）⑥ `kline.js` `_fmtClose()` 安全格式化昨收（`null.toFixed(2)` → TypeError 图表白屏）⑦ `requirements.txt` 补 `httpx>=0.27.0` |
+| V2.0.0 | 2026-06-28 | **智能预测系统**（11 步 / ~2700 行 / 5 新文件）：Step 1a `chanlun.py` 缠论基础层（包含处理→分型→笔→一类买卖点，~290行），Step 1b `utils.py` `_fallback()`+`_shard()`，Step 2 `fundamentals.py` 5接口基本面（~240行），Step 3 `backtest.py` 9指标回测（~200行），Step 3.5 `chanlun.py` 进阶层（线段→中枢→走势→背驰→二三买卖点，+290行），Step 4 `scorer.py` 七维评分+10因子+百分位（~450行），Step 5 `ai_analyzer.py` Pollinations+智谱 fallback（~260行），Step 6 `main.py` 6 端点 API 集成，Step 7 `kline.js` markPoint/markArea + O6搜索缓存，Step 8 `predict.js` 第9模块+三Tab，Step 9 predict CSS+ deploy 脚本，Step 10 文档同步。**零新依赖** |
 
 ### V1.7.0 Step 4.5 UA 测试修复（2026-06-26~27，9 commits，8/8 全过）
 
