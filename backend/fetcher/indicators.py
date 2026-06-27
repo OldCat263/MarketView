@@ -82,3 +82,66 @@ def calc_macd(closes, fast=12, slow=26, signal=9):
             hist[i] = round((dif[i] - dea[i]) * 2, 4)
 
     return {'DIF': dif, 'DEA': dea, 'HIST': hist}
+
+
+# ── V1.9.0 新增因子指标 ──
+
+def calc_rsi(closes, period=14):
+    """RSI(14) 相对强弱指标 — 100 - 100/(1+avg_gain/avg_loss)"""
+    n = len(closes)
+    if n < period + 1:
+        return {'RSI': [None] * n}
+
+    gains, losses, rsi = [], [], [None] * n
+    for i in range(1, n):
+        diff = closes[i] - closes[i-1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+
+    # Smith 平滑
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for i in range(period, n - 1):
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        rsi[i + 1] = round(100 - 100 / (1 + rs), 2)
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    return {'RSI': rsi}
+
+
+def calc_atr(highs, lows, closes, period=14):
+    """ATR(14) 平均真实波幅"""
+    n = len(closes)
+    if n < 2:
+        return {'ATR': [None] * n}
+
+    tr_list = []
+    for i in range(1, n):
+        tr = max(highs[i] - lows[i],
+                 abs(highs[i] - closes[i-1]),
+                 abs(lows[i] - closes[i-1]))
+        tr_list.append(tr)
+
+    atr = [None] * n
+    if len(tr_list) >= period:
+        atr_val = sum(tr_list[:period]) / period
+        atr[period] = round(atr_val, 4)
+        for i in range(period, len(tr_list)):
+            atr_val = (atr_val * (period - 1) + tr_list[i]) / period
+            atr[i + 1] = round(atr_val, 4)
+
+    return {'ATR': atr}
+
+
+def calc_vpt(closes, volumes):
+    """VPT 量价趋势 — 累积 (close-prev_close)/prev_close * volume"""
+    n = len(closes)
+    vpt = [None] * n
+    cum = 0.0
+    for i in range(1, n):
+        if closes[i-1] and closes[i-1] != 0:
+            cum += (closes[i] - closes[i-1]) / closes[i-1] * volumes[i]
+        vpt[i] = round(cum, 2)
+    return {'VPT': vpt}
