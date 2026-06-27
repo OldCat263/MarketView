@@ -55,6 +55,8 @@ window.MV.Kline = (function() {
   var _klineSSE = null;        // K线 SSE EventSource
   var _klineSSERetry = null;   // SSE 重连定时器
   var _calibrateTimer = null;  // 30s/60s 全量校准定时器
+  var _predictData = null;    // V1.9.0 预测叠加数据（买卖点+中枢）
+  var _searchCache = {};      // O6 搜索索引缓存（module_period → index）
 
   // ─── 交易时段判断（北京时间 UTC+8）───
   function isTradingHours(module) {
@@ -121,6 +123,42 @@ window.MV.Kline = (function() {
   }
 
   // ─── 构建 ECharts Option ───
+  // V1.9.0: 预测买卖点/中枢叠加
+  function _applyPredictOverlay(option, resp) {
+    if (!_predictData) return option;
+    var chanlun = _predictData.chanlun || {};
+    var buyPts = (chanlun.buy_points || []).concat(chanlun.buy_points_ext || []);
+    var sellPts = (chanlun.sell_points || []).concat(chanlun.sell_points_ext || []);
+    var zsList = chanlun.zhongshu_list || [];
+
+    // markPoint: 买卖点箭头（最近20个）
+    var markData = [];
+    buyPts.slice(-10).forEach(function(p) {
+      markData.push({name: p.type||'', coord: [p.date, p.price], value: p.price, symbol: 'triangle', symbolSize: 14, itemStyle: {color: '#ef4444'}, label: {show: true, fontSize: 10, formatter: 'B'}});
+    });
+    sellPts.slice(-10).forEach(function(p) {
+      markData.push({name: p.type||'', coord: [p.date, p.price], value: p.price, symbol: 'pin', symbolSize: 14, symbolRotate: 180, itemStyle: {color: '#22c55e'}, label: {show: true, fontSize: 10, formatter: 'S'}});
+    });
+
+    if (markData.length > 0 && option.series && option.series[0]) {
+      option.series[0].markPoint = {symbol: 'pin', symbolSize: 16, label: {fontSize: 10}, data: markData};
+    }
+
+    // markArea: 最新中枢矩形
+    if (zsList.length > 0) {
+      var lastZs = zsList[zsList.length - 1];
+      option.series[0].markArea = {
+        silent: true,
+        data: [[
+          {xAxis: lastZs.start_date, yAxis: lastZs.zg},
+          {xAxis: lastZs.end_date, yAxis: lastZs.zd}
+        ]],
+        itemStyle: {color: 'rgba(245,158,11,0.08)', borderColor: '#f59e0b', borderWidth: 1, borderType: 'dashed'}
+      };
+    }
+    return option;
+  }
+
   function buildOption(resp) {
     var dates = resp.data.map(function(r) { return r[0]; });
     var ohlc = toCandlestick(resp.data);
@@ -572,6 +610,7 @@ window.MV.Kline = (function() {
     if (!chart) initChart();
     if (!chart) return;
     var option = showMinute ? buildMinuteOption(resp, _yesterdayClose) : buildOption(resp);
+    if (!showMinute) _applyPredictOverlay(option, resp);  // V1.9.0 叠加买卖点+中枢
     if (noAnimation) { option.animation = false; option.animationDuration = 0; }
     chart.setOption(option, { notMerge: true });
   }
@@ -712,6 +751,7 @@ window.MV.Kline = (function() {
   // ─── 周期切换 ───
   function switchPeriod() {
     currentPeriod = document.getElementById('klinePeriod').value;
+    _searchCache = {}; _predictData = null;  // V1.9.0 清除缓存
     // 周期联动：1m/5m → 分时，≥15m → K线
     var isMinutePeriod = (currentPeriod === '1m' || currentPeriod === '5m');
     if (isMinutePeriod && !showMinute) {
@@ -812,6 +852,10 @@ window.MV.Kline = (function() {
 
   // ─── 搜索：构建代码索引 ───
   function buildCodeIndex() {
+    // O6: 搜索索引缓存（避免每次搜索都重建）
+    var cacheKey = currentModule + '_' + currentPeriod;
+    if (_searchCache[cacheKey]) return _searchCache[cacheKey];
+
     var index = [];
     var seen = {};
     MODULE_ORDER.forEach(function(m) {
@@ -836,6 +880,7 @@ window.MV.Kline = (function() {
         if (info) index.push({code: info.code, name: info.name, module: m});
       });
     }
+    _searchCache[cacheKey] = index;
     return index;
   }
 
@@ -882,6 +927,7 @@ window.MV.Kline = (function() {
     if (input) input.value = name + ' (' + code + ')';
     hideSuggest();
     currentModule = module;
+    _searchCache = {}; _predictData = null;  // V1.9.0
     loadData(module, code, true, name);
     _connectKlineSSE();  // 重连 SSE（code 已变）
   }
