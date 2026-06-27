@@ -172,32 +172,44 @@ window.MV = (function() {
     cc.querySelector('.card-status .status').textContent = '💤'; cc.querySelector('.card-count').textContent = '点击加载';
     loadedCount++; totalMods = MODULES.length - 1;
 
-    await Promise.all(MODULES.map(async m => {
-      if (m.id === 'crypto' || m.placeholder) return;
-      let cached = cacheGet(m.id, true);
-      if (cached) {
-        ST[m.id] = { rows: cached.rows, cols: cached.cols, page: 1, sortKey: null, sortDir: 1, updateTime: cached.time, search: '', fetchTime: Date.now() };
-        LOADED[m.id] = true;
-        let card = document.getElementById('card_' + m.id);
-        card.querySelector('.card-status .status').textContent = '✅'; card.querySelector('.card-count').textContent = cached.rows.length + ' 条';
-        loadedCount++; latestUpdate = Date.now();
-        let pct = Math.round(loadedCount / totalMods * 100);
-        document.getElementById('loadBar').style.width = pct + '%';
-        return;
-      }
-      try {
-        await loadModule(m.id);
-        loadedCount++; latestUpdate = Date.now();
-        let pct = Math.round(loadedCount / totalMods * 100);
-        document.getElementById('loadBar').style.width = pct + '%';
-        document.getElementById('loadStatus').textContent = '已加载 ' + loadedCount + '/' + totalMods;
-         _updateConnStatus(true);
-      } catch (e) {
-        let card = document.getElementById('card_' + m.id);
-        card.querySelector('.card-status .status').textContent = '❌'; card.querySelector('.card-count').textContent = '加载失败';
-        _updateConnStatus(false);
-      }
-    }));
+    // V1.8.6: 改为逐个后台加载，首页立即可用
+    var mods = MODULES.filter(function(m) {
+        return m.id !== 'crypto' && !m.placeholder;
+    });
+
+    // 先标记全部卡片为"加载中"
+    mods.forEach(function(m) {
+        var card = document.getElementById('card_' + m.id);
+        if (card) {
+            card.querySelector('.card-status .status').textContent = '⏳';
+            card.querySelector('.card-count').textContent = '加载中';
+        }
+    });
+
+    // 逐个加载（不阻塞首页交互）
+    for (var i = 0; i < mods.length; i++) {
+        var m = mods[i];
+        try {
+            var cached = cacheGet(m.id, true);
+            if (cached) {
+                ST[m.id] = { rows: cached.rows, cols: cached.cols, page: 1, sortKey: null, sortDir: 1, updateTime: cached.time, search: '', fetchTime: Date.now() };
+                LOADED[m.id] = true;
+                var card = document.getElementById('card_' + m.id);
+                card.querySelector('.card-status .status').textContent = '✅';
+                card.querySelector('.card-count').textContent = cached.rows.length + ' 条';
+            } else {
+                await loadModule(m.id);
+            }
+            loadedCount++;
+            latestUpdate = Date.now();
+            var pct = Math.round(loadedCount / mods.length * 100);
+            document.getElementById('loadBar').style.width = pct + '%';
+        } catch (e) {
+            loadedCount++;  // 即使失败也计数
+            var card2 = document.getElementById('card_' + m.id);
+            card2.querySelector('.card-status .status').textContent = '❌';
+        }
+    }
 
     if (loadedCount >= totalMods) {
       let notice = document.getElementById('firstNotice');
