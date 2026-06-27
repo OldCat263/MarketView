@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarketView — 全市场数据</title>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<!-- 导航栏 -->
+<nav class="nav">
+  <a class="nav-link active" id="navHome" onclick="MV.goHome()">首页</a>
+  <a class="nav-link" id="navKline" onclick="MV.goKline()">行情</a>
+</nav>
+
+<div class="container">
+  <div class="header"><h1>MarketView</h1></div>
+  <div class="toast" id="toast" style="display:none"></div>
+
+  <!-- 模块卡片网格 -->
+  <div class="grid" id="grid"></div>
+
+  <!-- 数据视图 -->
+  <div class="panel" id="panel" style="display:none">
+    <div class="panel-bar">
+      <button class="back-btn" onclick="MV.closePanel()" title="返回首页">←</button>
+      <span class="conn-dot on" id="connDot" title="实时连接"></span>
+      <span style="font-size:11px;color:var(--dim)" id="connStatus">实时</span>
+      <span id="moduleTitle" style="color:var(--text);font-weight:600;margin-left:8px"></span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dim);font-size:12px" id="viewTime"></span>
+      <span style="font-size:11px" id="liveStatus"></span>
+    </div>
+    <div class="bar">
+      <input id="search" type="text" placeholder="搜索..." oninput="MV.doFilter()">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="wrap">
+      <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+      <div class="empty" id="empty">加载中...</div>
+      <div class="news-list" id="newsPanel" style="display:none"></div>
+    </div>
+    <div class="pager" id="pager" style="display:none">
+      <button onclick="MV.goPage('first')">首页</button>
+      <button onclick="MV.goPage('prev')">上一页</button>
+      <span id="pageInfo"></span>
+      <button onclick="MV.goPage('next')">下一页</button>
+      <button onclick="MV.goPage('last')">末页</button>
+    </div>
+  </div>
+
+  <!-- K线视图 -->
+  <div class="kline-view" id="kline-view" style="display:none">
+    <div class="kline-toolbar">
+      <button class="back-btn" onclick="MV.goHome()" title="返回首页">←</button>
+      <span id="klineTitle" style="color:var(--text);font-weight:600;margin-left:8px"></span>
+      <span style="flex:1"></span>
+      <span class="kline-search-wrap">
+        <input id="klineSearch" type="text" placeholder="搜索代码/名称..."
+               oninput="MV.Kline.onSearchInput()" autocomplete="off">
+        <div class="kline-suggest" id="klineSuggest" style="display:none"></div>
+      </span>
+      <select id="klinePeriod" onchange="MV.Kline.switchPeriod()">
+        <option value="1m">1分</option><option value="5m">5分</option><option value="15m">15分</option>
+        <option value="30m">30分</option><option value="60m">60分</option><option value="1d" selected>日K</option>
+        <option value="1w">周K</option><option value="1M">月K</option>
+      </select>
+      <button id="minuteBtn" onclick="MV.Kline.toggleMinute()">分时</button>
+      <label class="macd-toggle"><input type="checkbox" id="macdToggle" onchange="MV.Kline.toggleMACD()">MACD</label>
+      <div class="kline-legend">
+        <span style="color:#f59e0b">── MA5(5日)</span>
+        <span style="color:#3b82f6">── MA10(10日)</span>
+        <span style="color:#8b5cf6">── MA20(20日)</span>
+        <span style="color:#06b6d4">── MA60(60日)</span>
+        <span style="color:#22c55e">── MA120(半年)</span>
+        <span style="color:#ef4444">── MA250(年线)</span>
+        <span style="color:#f59e0b">┅ 布林上轨</span>
+        <span style="color:#a78bfa">┅ 布林中轨</span>
+        <span style="color:#22d3ee">┅ 布林下轨</span>
+      </div>
+    </div>
+    <div class="kline-chart-wrap" id="kline-chart"></div>
+  </div>
+
+  <div class="first-notice" id="firstNotice" style="display:none">
+    <div class="progress-wrap"><div class="progress-bar" id="loadBar"></div></div>
+    <div class="progress-text" id="loadStatus">正在加载...</div>
+  </div>
+  <div class="timestamp" id="globalStamp"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="js/core.js"></script>
+<script src="js/modules/crypto.js"></script>
+<script src="js/modules/stock.js"></script>
+<script src="js/modules/etf.js"></script>
+<script src="js/modules/hk.js"></script>
+<script src="js/modules/us.js"></script>
+<script src="js/modules/index_mod.js"></script>
+<script src="js/modules/news.js"></script>
+<script src="js/kline.js"></script>
+<script>
+(function() {
+  let html = '';
+  MV.MODULES.forEach(m => {
+    html += '<div class="card" id="card_'+m.id+'" onclick="MV.'+(m.id==='crypto'?'startCrypto':'startModule')+'(\''+m.id+'\')">'+
+      '<div class="card-icon">'+m.icon+'</div>'+
+      '<div class="card-name">'+m.name+'</div>'+
+      '<div class="card-status"><span class="status">⏳</span></div>'+
+      '<div class="card-count">等待加载</div>'+
+    '</div>';
+  });
+  document.getElementById('grid').innerHTML = html;
+})();
+</script>
+</body>
+</html>
