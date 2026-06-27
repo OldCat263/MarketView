@@ -5,7 +5,7 @@ MV.register({
   id: 'news',
   icon: '📰', name: '新闻',
   endpoint: '/api/news/spot',
-  columns: ['datetime', 'content', 'source'],
+  columns: ['datetime', 'content', 'source', 'url'],
   sortCol: 'datetime',
   renderMode: 'news',
   renderFn: renderNews,
@@ -27,9 +27,14 @@ function renderNews(rows, cols) {
       var dt = r.datetime || '';
       var ct = r.content || '';
       var src = r.source || '';
-      // 时间只取 HH:MM:SS（如果含日期）
-      var timeDisplay = dt.length > 10 ? dt.substring(11) : dt;
-      html += '<div class="news-card">'
+      var url = r.url || '';
+      // 日期+时间（如含日期则显示 MM-DD HH:MM，否则原样）
+      var timeDisplay = dt;
+      if (dt.length >= 16) {
+        timeDisplay = dt.substring(5, 16);  // "MM-DD HH:MM"
+      }
+      var clickAttr = url ? ' onclick="window.open(\'' + url.replace(/'/g, "\\'") + '\')" style="cursor:pointer"' : '';
+      html += '<div class="news-card"' + clickAttr + '>'
         + '<div class="news-card-header">'
         + '<span class="news-time">' + timeDisplay + '</span>'
         + '<span class="news-source">' + src + '</span>'

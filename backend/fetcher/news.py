@@ -5,8 +5,8 @@
 
 主源格式：
   URL: https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&num=50&page=1
-  返回: JSON {result: {data: [{ctime: unix_ts, title: str, intro: str, media_name: str}, ...]}}
-  转换: ctime → datetime(YYYY-MM-DD HH:MM:SS), title+intro → content, media_name → source
+  返回: JSON {result: {data: [{ctime: unix_ts, title: str, intro: str, media_name: str, url: str}, ...]}}
+  转换: ctime → datetime(YYYY-MM-DD HH:MM:SS), title+intro → content, media_name → source, url → url
 备源格式：
   函数: AKShare stock_news_main_cx() → DataFrame(tag, summary, url)
   转换: tag+summary → content, '财新头条' → source, datetime 为空
@@ -46,11 +46,13 @@ def _from_sina():
                 if intro and intro != title:
                     content = title + '：' + intro
                 media = (item.get('media_name') or '新浪财经').strip()
+                news_url = (item.get('url') or '').strip()
                 if title:
                     result.append({
                         'datetime': dt,
                         'content': content,
                         'source': media,
+                        'url': news_url,
                     })
             except Exception:
                 continue
@@ -78,6 +80,7 @@ def _from_caixin():
                 'datetime': '',  # 财新无时间字段
                 'content': content,
                 'source': '财新头条',
+                'url': str(row.get('url', '')).strip(),
             })
         return result
     except Exception as e:
