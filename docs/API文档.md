@@ -419,6 +419,42 @@ curl -N -m 6 'http://localhost:8000/api/stream/news' 2>&1 | grep -c 'shard.-1'
 - **V1.7.0 起**: K线 API 走 `/api/kline/{module}/{code}`，实时推送走 `/api/stream/kline/{module}/{code}`（5s 间隔推最新 K线）
 - **V1.8.5 起**: SSE 多客户端广播——每个连接独立 Queue，多标签页同模块均收到实时数据
 - **V1.8.6 起**: K线服务端缓存 TTL 5min，同股票同周期二次请求 < 50ms；`/api/health` 返回每模块就绪状态
+- **V2.0.0 起**: 智能预测系统——6 个预测端点，详见 §11
+
+---
+
+## 11. 智能预测（V2.0.0）
+
+### 11.1 完整流水线
+
+```
+GET /api/predict/analyze/{module}/{code}?period=1d&count=200&with_ai=false
+```
+
+| 参数 | 必须 | 默认 | 说明 |
+|------|------|------|------|
+| period | 否 | 1d | K线周期 |
+| count | 否 | 200 | K线根数 |
+| with_ai | 否 | false | 是否启用AI分析 |
+
+返回: chanlun(买卖点/中枢/走势/背驰) + backtest(9指标) + score(七维) + quant_factors(10因子) + similar_setups + multi_period + AI
+
+### 11.2 基本面
+
+```
+GET /api/fundamental/{module}/{code}
+```
+
+### 11.3 批量排行
+
+```
+GET /api/predict/rank/{module}?period=1d&limit=50
+POST /api/predict/batch/{module}?pool_size=300  # 触发计算
+GET /api/predict/status/{module}               # 进度
+GET /api/stream/predict/{module}               # SSE
+```
+
+> 快速档(4维)<100ms, 完整档(7维+AI)~5s
 
 ---
 
