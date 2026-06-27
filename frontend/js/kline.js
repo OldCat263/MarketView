@@ -380,6 +380,9 @@ window.MV.Kline = (function() {
     return series;
   }
 
+  // P0 #6: 昨收安全格式化
+  function _fmtClose(v) { return v != null ? v.toFixed(2) : 'N/A'; }
+
   // ─── 分时图 Option ───
   function buildMinuteOption(resp, yesterdayClose) {
     var rows = resp.data || [];
@@ -680,7 +683,7 @@ window.MV.Kline = (function() {
           }
           if (minData && minData.data && minData.data.length > 0) {
             lastResp = minData;
-            document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+            document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
             render(minData);
             return;
           }
@@ -690,7 +693,7 @@ window.MV.Kline = (function() {
       }
       // 降级：用缓存 K线数据
       if (lastResp) {
-        document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+        document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
         render(lastResp);
       }
     } else {
@@ -793,7 +796,7 @@ window.MV.Kline = (function() {
         }
         if (minData && minData.data && minData.data.length > 0) {
           lastResp = minData;
-          document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+          document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
           render(minData);
           return;
         }
@@ -802,7 +805,7 @@ window.MV.Kline = (function() {
       }
     }
     if (lastResp) {
-      document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || currentCode) + ' (' + currentCode + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _yesterdayClose.toFixed(2) + '</span>';
+      document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || lastResp.name || currentCode) + ' (' + currentCode + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
       render(lastResp);
     }
   }
