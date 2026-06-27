@@ -242,7 +242,15 @@ window.MV = (function() {
           if (ls) ls.innerHTML = '<span class="conn-dot on"></span>实时';
           return;
         }
-        // 为分片数据建索引，按"代码"匹配旧行做 diff
+        // ① diff 前保存旧值快照（st.rows 即将被 in-place 改写）
+        let oldSnap = {};
+        shardRows.forEach(r => {
+            let code = r['代码'] || r['交易对'];
+            if (!code) return;
+            let oldRow = st.rows.find(row => (row['代码']||row['交易对'])===code);
+            if (oldRow) oldSnap[code] = Object.assign({}, oldRow);
+        });
+        // ② 为分片数据建索引，按"代码"匹配旧行做 diff
         let byCode = {};
         shardRows.forEach(r => { let c = r['代码'] || r['交易对']; if (c) byCode[c] = r; });
         let changed = false;
@@ -255,25 +263,35 @@ window.MV = (function() {
             if (ov != nv) {
               old[k] = nv;
               changed = true;
-              // 视觉闪动
-              if (typeof nv === 'number' && (k.includes('涨跌') || k.includes('价') || k.includes('price') || k.includes('change'))) {
-                let cell = document.querySelector('td[data-code="' + code + '"][data-field="' + k + '"]');
-                if (cell) { cell.classList.remove('flash-up', 'flash-down'); void cell.offsetWidth; cell.classList.add(nv > ov ? 'flash-up' : 'flash-down'); }
-              }
             }
           });
         });
+        // ③ changed=true 分支：先 render 重建 DOM，再对 新 DOM 加 flash
         if (changed) {
           let now = Date.now(), timeStr = new Date().toLocaleTimeString();
           st.fetchTime = now;
           st.updateTime = timeStr;
           latestUpdate = now;
           _updateConnStatus(true);
-          // 同步 4 处时间显示
           if (tab === m) {
             rows = st.rows;
             updateTime = st.updateTime;
-            render();
+            render();  // 先重建 DOM
+            // ④ 再对新 DOM 加 flash（用 oldSnap 取真旧值）
+            shardRows.forEach(r => {
+                let code = r['代码'] || r['交易对'];
+                if (!code) return;
+                Object.keys(r).forEach(k => {
+                    let nv = r[k], ov = oldSnap[code]?.[k];
+                    if (typeof nv === 'number' && (k.includes('涨跌') || k.includes('价'))) {
+                        let cell = document.querySelector('td[data-code="'+code+'"][data-field="'+k+'"]');
+                        if (cell && ov != null && nv !== ov) {
+                            cell.classList.add(nv > ov ? 'flash-up' : 'flash-down');
+                            setTimeout(() => cell.classList.remove('flash-up','flash-down'), 600);
+                        }
+                    }
+                });
+            });
           }
         }
         let ls = document.getElementById('liveStatus');
