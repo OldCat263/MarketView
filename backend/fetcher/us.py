@@ -7,8 +7,15 @@ _US_CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 
 
 def fetch_shard(shard_idx, total_shards):
     codes = _load_us_codes()
-    chunk = max(1, len(codes) // total_shards)
-    my = codes[shard_idx*chunk:(shard_idx+1)*chunk] if shard_idx < total_shards-1 else codes[shard_idx*chunk:]
+    # V1.8.6: 分片 0 先拉热门股（前 100 只）
+    if shard_idx == 0:
+        return _from_tencent_threaded(codes[:100], workers=3)
+    # 其余分片覆盖 codes[100:] 全量，无缺口
+    rest = codes[100:]
+    n_rest = total_shards - 1
+    chunk = max(1, len(rest) // n_rest)
+    my_idx = shard_idx - 1
+    my = rest[my_idx*chunk:(my_idx+1)*chunk] if my_idx < n_rest-1 else rest[my_idx*chunk:]
     return _from_tencent_threaded(my, workers=min(3, len(my)//50+1))
 
 _us_codes_cache = None
@@ -31,7 +38,9 @@ def _load_us_codes():
     # 回退到 AkShare
     try:
         df = ak.stock_us_spot_em()
-        codes = [str(r['代码']) for _, r in df.iterrows()]
+        codes_with_vol = [(str(r['代码']), float(r.get('成交量', 0) or 0)) for _, r in df.iterrows()]
+        codes_with_vol.sort(key=lambda x: x[1], reverse=True)  # 成交量降序，热门在前
+        codes = [c for c, _ in codes_with_vol]
     except Exception:
         df = ak.stock_us_spot()
         codes = [str(r.get('symbol','')) for _, r in df.iterrows() if r.get('symbol')]
