@@ -283,13 +283,295 @@ def analyze(rows, prev_result=None):
         'fenxing_count': len(fenxing_data),
     }
 
-    # Step 3.5 追加的 key 预置空
+    # 5. 进阶层（Step 3.5）
+    xd_list = _build_xian_duan(bi_list, clean_rows)
+    zs_list = _find_zhongshu(xd_list if xd_list else bi_list, clean_rows)
+    zoushi = _classify_zoushi(zs_list)
+    beichi_list = _detect_beichi(bi_list, clean_rows)
+    buy_points_ext, sell_points_ext = _find_ext_points(bi_list, zs_list, zoushi, clean_rows)
+
     result.update({
-        'zhongshu_list': [],
-        'zoushi': {'type': 'unknown', 'zhongshu_count': 0},
-        'beichi_list': [],
-        'buy_points_ext': [],
-        'sell_points_ext': [],
+        'zhongshu_list': zs_list,
+        'zoushi': zoushi,
+        'beichi_list': beichi_list,
+        'buy_points_ext': buy_points_ext,
+        'sell_points_ext': sell_points_ext,
+        'xian_duan_count': len(xd_list),
+        'zhongshu_count': len(zs_list),
     })
 
     return result
+
+
+# ============================================================
+# Step 3.5: 进阶层 — 线段 → 中枢 → 走势 → 背驰 → 二三买卖点
+# ============================================================
+
+def _build_xian_duan(bi_list, rows):
+    """从笔构建线段（缠论第 67-69 课）。
+    线段由至少 3 笔组成，方向由第一笔决定。
+    Returns: [{'start_idx','end_idx','direction','high','low',...},...]
+    """
+    if len(bi_list) < 3:
+        return []
+
+    xd_list = []
+    i = 0
+    while i < len(bi_list) - 2:
+        bi1, bi2, bi3 = bi_list[i], bi_list[i+1], bi_list[i+2]
+
+        # 前三笔必须方向交替: bi1和bi3同向, bi2反向
+        if bi1['direction'] != bi3['direction']:
+            i += 1
+            continue
+
+        direction = bi1['direction']  # 线段方向 = 首笔方向
+
+        # 找线段终点: 继续延伸直到方向改变或笔用完
+        j = i + 3
+        while j < len(bi_list):
+            # 第j笔应与bi1同向则为延伸，反向则线段结束
+            if j < len(bi_list):
+                next_bi = bi_list[j]
+                if next_bi['direction'] != direction:
+                    break  # 出现了反向笔，线段可能结束
+            j += 1
+
+        # 线段终点 = 最后一笔的终点
+        end_bi = bi_list[j - 1] if j <= len(bi_list) else bi_list[-1]
+
+        # 计算线段高低点
+        high = max(b['end_price'] if b['direction'] == 'up' else b['start_price']
+                   for b in bi_list[i:j])
+        low = min(b['end_price'] if b['direction'] == 'down' else b['start_price']
+                  for b in bi_list[i:j])
+
+        xd_list.append({
+            'start_idx': bi1['start_idx'],
+            'end_idx': end_bi['end_idx'],
+            'direction': direction,
+            'start_date': bi1['start_date'],
+            'end_date': end_bi['end_date'],
+            'high': round(high, 2),
+            'low': round(low, 2),
+            'bi_count': j - i,
+            'start_price': bi1['start_price'],
+            'end_price': end_bi['end_price'],
+        })
+
+        i = j  # 跳到线段结束位置
+
+    return xd_list
+
+
+def _find_zhongshu(xd_list, rows):
+    """识别中枢（缠论第 70-73 课）。
+    中枢 = 至少 3 段连续线段的重叠区间。
+    ZG = min(各线段高点), ZD = max(各线段低点)
+    Returns: [{'zg','zd','start_date','end_date','level','position','xd_count'},...]
+    """
+    if len(xd_list) < 3:
+        return []
+
+    zs_list = []
+    i = 0
+    while i < len(xd_list) - 2:
+        xd1, xd2, xd3 = xd_list[i], xd_list[i+1], xd_list[i+2]
+
+        # 计算重叠区间
+        highs = [xd1['high'], xd2['high'], xd3['high']]
+        lows = [xd1['low'], xd2['low'], xd3['low']]
+        zg = min(highs)
+        zd = max(lows)
+
+        # 有重叠 (ZG > ZD)
+        if zg <= zd:
+            i += 1
+            continue
+
+        # 延伸中枢: 看后续线段是否仍在重叠区间内
+        j = i + 3
+        while j < len(xd_list):
+            xd_j = xd_list[j]
+            if xd_j['high'] < zd or xd_j['low'] > zg:
+                break  # 离开中枢区间
+            highs.append(xd_j['high'])
+            lows.append(xd_j['low'])
+            zg = min(highs)
+            zd = max(lows)
+            if zg <= zd:
+                break
+            j += 1
+
+        # 级别判定: 日线中枢 ≈ 日线级别
+        xd_count = j - i
+        if xd_count >= 5:
+            level = '日线'
+        elif xd_count >= 3:
+            level = '30分钟'
+        else:
+            level = '5分钟'
+
+        # 中枢位置（在中枢内的位置）
+        position = '中轨'
+        if len(rows) > xd_list[i]['end_idx']:
+            last_close = rows[min(xd_list[i]['end_idx'], len(rows)-1)][2]
+            if last_close >= zg:
+                position = '上轨上方'
+            elif last_close <= zd:
+                position = '下轨下方'
+            elif last_close >= (zg + zd) / 2:
+                position = '中轨偏上'
+            else:
+                position = '中轨偏下'
+
+        zs_list.append({
+            'zg': round(zg, 2),
+            'zd': round(zd, 2),
+            'start_date': xd1['start_date'],
+            'end_date': xd_list[j-1]['end_date'],
+            'level': level,
+            'position': position,
+            'xd_count': xd_count,
+            'amplitude': round((zg - zd) / zd * 100, 2) if zd > 0 else 0,
+        })
+
+        i = j
+
+    return zs_list
+
+
+def _classify_zoushi(zs_list):
+    """走势分类（缠论第 74-76 课）。
+    - 上涨: ZG 逐级抬高
+    - 下跌: ZG 逐级降低
+    - 盘整: 单一中枢或 ZG 无明显方向
+    Returns: {'type': '上涨'|'下跌'|'盘整', 'zhongshu_count': int}
+    """
+    if not zs_list:
+        return {'type': '盘整', 'zhongshu_count': 0, 'direction': 'neutral'}
+
+    n = len(zs_list)
+    if n == 1:
+        return {'type': '盘整', 'zhongshu_count': 1, 'direction': 'neutral'}
+
+    zgs = [zs['zg'] for zs in zs_list]
+    ups = sum(1 for i in range(1, n) if zgs[i] > zgs[i-1])
+    downs = sum(1 for i in range(1, n) if zgs[i] < zgs[i-1])
+
+    if ups > downs * 2:
+        return {'type': '上涨', 'zhongshu_count': n, 'direction': 'up'}
+    elif downs > ups * 2:
+        return {'type': '下跌', 'zhongshu_count': n, 'direction': 'down'}
+    else:
+        return {'type': '盘整', 'zhongshu_count': n, 'direction': 'neutral'}
+
+
+def _detect_beichi(bi_list, rows):
+    """背驰检测（缠论第 37-40 课）。
+    比较相邻同向笔的力度（用 MACD 面积或涨跌幅），力度衰减 = 背驰。
+    Returns: [{'type':'顶背驰'|'底背驰','date','price','strength'},...]
+    """
+    if len(bi_list) < 2:
+        return []
+
+    beichi_list = []
+
+    for i in range(1, len(bi_list)):
+        prev_bi = bi_list[i-1]
+        curr_bi = bi_list[i]
+
+        if prev_bi['direction'] != curr_bi['direction']:
+            continue
+
+        # 同向笔比较: 力度衰减 = 背驰
+        prev_strength = prev_bi.get('strength', 0)
+        curr_strength = curr_bi.get('strength', 0)
+
+        # 笔的伸展幅度（绝对涨跌幅）
+        prev_amplitude = abs(prev_bi['end_price'] - prev_bi['start_price']) / max(abs(prev_bi['start_price']), 0.01)
+        curr_amplitude = abs(curr_bi['end_price'] - curr_bi['start_price']) / max(abs(curr_bi['start_price']), 0.01)
+
+        # 力度衰减阈值: 当前力度 < 前一笔的 60%
+        if curr_amplitude < prev_amplitude * 0.6:
+            if curr_bi['direction'] == 'up':
+                beichi_type = '顶背驰'
+                price = curr_bi['end_price']
+            else:
+                beichi_type = '底背驰'
+                price = curr_bi['end_price']
+
+            beichi_list.append({
+                'type': beichi_type,
+                'date': curr_bi['end_date'],
+                'price': round(price, 2),
+                'strength': round(prev_amplitude - curr_amplitude, 4),
+                'prev_strength': round(prev_amplitude, 4),
+                'curr_strength': round(curr_amplitude, 4),
+            })
+
+    return beichi_list[-10:]  # 最近 10 个背驰信号
+
+
+def _find_ext_points(bi_list, zs_list, zoushi, rows):
+    """二三类买卖点（缠论第 21/32 课）。
+
+    二类买点: 下降笔终点在 中枢 ZD 上方或附近（不创新低）
+    二类卖点: 上升笔终点在 中枢 ZG 下方或附近（不创新高）
+    三类买点: 上升笔突破中枢 ZG 后回踩不破 ZG
+    三类卖点: 下降笔跌破中枢 ZD 后反抽不破 ZD
+    """
+    buy_points_ext = []
+    sell_points_ext = []
+
+    if not zs_list:
+        return buy_points_ext, sell_points_ext
+
+    last_zs = zs_list[-1]
+    zg, zd = last_zs['zg'], last_zs['zd']
+
+    for bi in bi_list[-20:]:  # 只检查最近 20 笔
+        end_price = bi['end_price']
+        date_str = bi['end_date']
+
+        if bi['direction'] == 'down':
+            # 二类买点: 下降笔终点在 ZD 上方 → 不创新低，回调买入
+            if zd * 0.95 <= end_price <= zg * 1.05:
+                buy_points_ext.append({
+                    'date': date_str,
+                    'price': round(end_price, 2),
+                    'type': '二类买',
+                    'reason': f'回调至中枢附近(ZD={zd:.2f})',
+                    'strength': round(bi.get('strength', 0), 2),
+                })
+            # 三类买点: 下降笔终点在 ZG 上方 → 突破后回踩
+            if end_price > zg:
+                buy_points_ext.append({
+                    'date': date_str,
+                    'price': round(end_price, 2),
+                    'type': '三类买',
+                    'reason': f'回踩不破中枢上轨(ZG={zg:.2f})',
+                    'strength': round(bi.get('strength', 0), 2),
+                })
+
+        else:  # up stroke
+            # 二类卖点: 上升笔终点在 ZG 下方 → 不创新高，反弹卖出
+            if zd * 0.95 <= end_price <= zg * 1.05:
+                sell_points_ext.append({
+                    'date': date_str,
+                    'price': round(end_price, 2),
+                    'type': '二类卖',
+                    'reason': f'反弹至中枢附近(ZG={zg:.2f})',
+                    'strength': round(bi.get('strength', 0), 2),
+                })
+            # 三类卖点: 上升笔终点在 ZD 下方 → 跌破后反抽
+            if end_price < zd:
+                sell_points_ext.append({
+                    'date': date_str,
+                    'price': round(end_price, 2),
+                    'type': '三类卖',
+                    'reason': f'反抽不破中枢下轨(ZD={zd:.2f})',
+                    'strength': round(bi.get('strength', 0), 2),
+                })
+
+    return buy_points_ext[-10:], sell_points_ext[-10:]  # 各自最近 10 个
