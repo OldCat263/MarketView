@@ -123,21 +123,20 @@ async def lifespan(app: FastAPI):
             print(f'[lifespan] heartbeat {m} started')
         except Exception as e:
             print(f'[lifespan] heartbeat {m} FAIL: {e}')
-    # 启动首轮全量预加载（加速首次访问）— 写分片 schema，与 _cached_get 一致
+    # 启动首轮全量预加载（加速首次访问）— 并行拉取，写分片 schema 与 _cached_get 一致
     def _initial_load():
-        for key, fn in [('stock', get_stock_json), ('etf', get_etf_json),
-                        ('hk', get_hk_json), ('us', get_us_json), ('index', get_index_json),
-                        ('news', get_news_json)]:
+        import concurrent.futures
+        def _load_one(key, fn):
             try:
                 raw = fn()
                 data = json.loads(raw) if isinstance(raw, str) else raw
                 n = SHARD_CFG[key]['n']
                 if isinstance(data, list) and not data:
-                    print(f'[Preload] {key} empty, skipped (roller data preserved)')
-                    continue
+                    print(f'[Preload] {key} empty, skipped')
+                    return
                 if isinstance(data, dict) and not data:
-                    print(f'[Preload] {key} empty dict, skipped (roller data preserved)')
-                    continue
+                    print(f'[Preload] {key} empty dict, skipped')
+                    return
                 with _cache_lock:
                     c = _cache.setdefault(key, {'shards': {}, 'cols': []})
                     if isinstance(data, list):
@@ -146,11 +145,22 @@ async def lifespan(app: FastAPI):
                             shard_data = data[i*chunk:(i+1)*chunk] if i < n-1 else data[i*chunk:]
                             c['shards'][i] = {'data': shard_data, 'ts': time.time()}
                     else:
-                        # dict 数据（如 index china/global）— 整体放 shard 0
                         c['shards'][0] = {'data': data, 'ts': time.time()}
-                print(f'[Preload] {key} OK ({len(data) if isinstance(data, list) else "dict"} → {n} shards)')
+                print(f'[Preload] {key} OK')
             except Exception as e:
                 print(f'[Preload] {key}: {e}')
+
+        modules = [
+            ('news', get_news_json),
+            ('index', get_index_json),
+            ('etf', get_etf_json),       # 小模块优先
+            ('hk', get_hk_json),
+            ('stock', get_stock_json),
+            ('us', get_us_json),         # 大模块最后
+        ]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            futures = {ex.submit(_load_one, key, fn): key for key, fn in modules}
+            concurrent.futures.wait(futures)
     threading.Thread(target=_initial_load, daemon=True).start()
     yield
 
