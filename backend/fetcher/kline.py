@@ -88,7 +88,7 @@ def _fetch_tencent_minute(code, period, count):
         if not raw or not isinstance(raw, list) or len(raw) == 0:
             return []
         # 腾讯返回时间方向不固定，取 count 根后确保升序
-        raw = raw[:count]
+        raw = raw[-count:] if len(raw) > count else raw
         if len(raw) >= 2:
             first_dt = str(raw[0][0]) if len(raw[0]) > 0 else ''
             last_dt = str(raw[-1][0]) if len(raw[-1]) > 0 else ''
