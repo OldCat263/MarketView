@@ -4,20 +4,17 @@ import math
 
 def calc_ma(closes, periods=(5, 10, 20, 60, 120, 250)):
     """简单移动平均
-    Returns: {f'MA{p}': [None]*N-1 + values, ...}
+    Returns: {f'MA{p}': [None|float, ...]} 长度始终与输入 closes 一致
     """
     result = {}
     for p in periods:
-        vals = [None] * (p - 1)
+        vals = []
         total = 0.0
         for i, v in enumerate(closes):
             total += v
             if i >= p:
                 total -= closes[i - p]
-            if i >= p - 1:
-                vals.append(round(total / p, 4))
-        while len(vals) < len(closes):
-            vals.append(None)
+            vals.append(round(total / p, 4) if i >= p - 1 else None)
         result[f'MA{p}'] = vals
     return result
 
