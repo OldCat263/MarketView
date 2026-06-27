@@ -43,10 +43,7 @@ window.MV = (function() {
   }
 
   // ─── 全局状态 ───
-  // GitHub Pages：调生产服务器 oldcat.site；本地开发：调当前 host
-  const API = (window.location.hostname.includes('github.io') || window.location.hostname === 'localhost')
-    ? 'https://oldcat.site'
-    : window.location.protocol + '//' + window.location.host;
+  const API = window.location.protocol + '//' + window.location.host;
   let ST = {}, LOADED = {}, tab = '', rows = [], cols = [], page = 1, pageSize = 50;
   let updateTime = '', sortKey = null, sortDir = 1;
   let loadedCount = 0, totalMods = 0, cryptoOK = false;
