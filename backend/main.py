@@ -196,7 +196,11 @@ def _ok(json_str):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok'}
+    status = {'status': 'ok'}
+    for key in SHARD_CFG:
+        data = _cached_get(key)
+        status[key] = (data != '[]' and data != '{}')
+    return status
 
 @app.get('/api/crypto/status')
 async def crypto_status_endpoint(proxy: str = None):

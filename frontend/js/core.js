@@ -365,6 +365,26 @@ window.MV = (function() {
   setInterval(refreshStamp, 1000);
   refreshStamp();
 
+  // V1.8.6: 每 5s 轮询模块就绪状态
+  setInterval(function() {
+      fetch(MV.API + '/api/health')
+          .then(function(r) { return r.json(); })
+          .then(function(s) {
+              MODULES.forEach(function(m) {
+                  var card = document.getElementById('card_' + m.id);
+                  if (!card) return;
+                  var dot = card.querySelector('.card-status .status');
+                  if (s[m.id]) {
+                      if (dot && dot.textContent === '⏳') dot.textContent = '✅';
+                      card.style.opacity = '1';
+                  } else {
+                      card.style.opacity = '0.5';  // 未就绪的卡片半透明
+                  }
+              });
+          })
+          .catch(function() {});
+  }, 5000);
+
   // ─── 翻页/搜索 ───
   function goPage(a) {
     let tp = Math.ceil(rows.length / pageSize) || 1;
