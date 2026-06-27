@@ -27,7 +27,8 @@ def _fetch_tencent(code, period, count):
     tx_p = _TX_PERIOD.get(period, 'day')
     url = f'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{tx_p},,,{count},qfq'
     try:
-        resp = httpx.get(url, timeout=30)
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url)
         data = resp.json()
         if data.get('code') != 0:
             return []
@@ -76,7 +77,8 @@ def _fetch_tencent_minute(code, period, count):
     # mkline 用 HTTPS 不带 web. 前缀（web.ifzq 会 301→web3 不可达）
     url = f'https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={code},{tx_p},,{count}'
     try:
-        resp = httpx.get(url, timeout=30)
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url)
         data = resp.json()
         if data.get('code') != 0:
             return []
@@ -134,7 +136,8 @@ def _fetch_binance(symbol, period, count):
             from .crypto import _found_proxy
             if _found_proxy:
                 client_kwargs['proxy'] = _found_proxy
-        resp = httpx.get(url, **client_kwargs)
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get(url)
         raw = resp.json()
         if period in ('1m','5m','15m','30m','60m'):
             fmt = '%Y-%m-%d %H:%M'
