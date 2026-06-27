@@ -37,7 +37,8 @@ SHARD_FN = {
 # ── 分片缓存（纯RAM，不落盘）──
 _cache = {}        # key → {'shards': {i:{'data':[],'ts':0}}, 'cols':[]}
 _cache_lock = threading.Lock()
-_sse_queues = {m: queue.Queue() for m in SHARD_CFG}
+_sse_queues = {m: [] for m in SHARD_CFG}  # list of per-client queues
+_sse_lock = threading.Lock()
 
 def _cached_get(key):
     """读缓存：合并分片返回全量；支持 list 和 dict 两种数据结构"""
@@ -79,10 +80,12 @@ def _roller(key, fetch_shard_fn):
             with _cache_lock:
                 c = _cache.setdefault(key, {'shards': {}, 'cols': []})
                 c['shards'][i] = {'data': data, 'ts': time.time()}
-            try:
-                _sse_queues[key].put_nowait({'shard': i, 'data': data, 'ts': time.time()})
-            except queue.Full:
-                pass
+            with _sse_lock:
+                for q in _sse_queues[key]:
+                    try:
+                        q.put_nowait({'shard': i, 'data': data, 'ts': time.time()})
+                    except queue.Full:
+                        pass
         except Exception as e:
             print(f'[{key}] shard {i} err: {e}')
         i = (i + 1) % cfg['n']
@@ -94,9 +97,12 @@ def _heartbeat(key, interval=3):
     while True:
         try:
             time.sleep(interval)
-            _sse_queues[key].put_nowait({'shard': -1, 'data': [], 'ts': time.time()})
-        except queue.Full:
-            pass
+            with _sse_lock:
+                for q in _sse_queues[key]:
+                    try:
+                        q.put_nowait({'shard': -1, 'data': [], 'ts': time.time()})
+                    except queue.Full:
+                        pass
         except Exception as e:
             print(f'[heartbeat] {key}: {e}')
 
@@ -286,15 +292,21 @@ async def stream_kline(module: str, code: str, period: str = '1d'):
 async def stream_module(module: str):
     if module not in _sse_queues:
         return StreamingResponse(iter(['event: error\ndata: unknown\n\n']), media_type='text/event-stream')
-    q = _sse_queues[module]
     async def gen():
         import asyncio as _aio
-        while True:
-            try:
-                msg = await _aio.to_thread(q.get, True, 30)
-                yield f'data: {json.dumps(msg)}\n\n'
-            except queue.Empty:
-                yield ': ping\n\n'
+        q = queue.Queue(maxsize=50)
+        with _sse_lock:
+            _sse_queues[module].append(q)
+        try:
+            while True:
+                try:
+                    msg = await _aio.to_thread(q.get, True, 30)
+                    yield f'data: {json.dumps(msg)}\n\n'
+                except queue.Empty:
+                    yield ': ping\n\n'
+        finally:
+            with _sse_lock:
+                _sse_queues[module].remove(q)
     return StreamingResponse(gen(), media_type='text/event-stream',
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
