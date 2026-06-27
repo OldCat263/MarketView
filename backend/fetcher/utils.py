@@ -7,11 +7,12 @@ def _safe_float(value) -> float:
 
 def _to_records(df) -> list:
     if df is None or len(df) == 0: return []
-    df = df.fillna(0)
     for col in df.columns:
         d = str(df[col].dtype)
         if any(k in d for k in ('datetime', 'timestamp', 'period', 'timedelta')):
             df[col] = df[col].astype(str)
+        else:
+            df[col] = df[col].fillna(0)
     return df.to_dict('records')
 
 def _to_json(df) -> str:
