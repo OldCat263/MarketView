@@ -160,6 +160,26 @@ window.MV = (function() {
 
   // ─── 预加载 ───
   async function preloadAll() {
+    // V1.8.6: 首屏快照优先 — 零等待渲染
+    if (window._SNAPSHOT && !firstVisit) {
+        Object.keys(window._SNAPSHOT).forEach(function(key) {
+            if (key === 'ts') return;
+            var d = window._SNAPSHOT[key];
+            if (Array.isArray(d)) {
+                var cols = d.length > 0 ? Object.keys(d[0]) : [];
+                ST[key] = { rows: d, cols: cols, page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '', fetchTime: Date.now() };
+                LOADED[key] = true;
+                var card = document.getElementById('card_' + key);
+                if (card) {
+                    card.querySelector('.card-status .status').textContent = '✅';
+                    card.querySelector('.card-count').textContent = d.length + ' 条';
+                }
+                loadedCount++;
+            }
+        });
+        latestUpdate = Date.now();
+    }
+
     if (firstVisit) { sessionStorage.setItem('mv_visited', '1');
       setInterval(() => {
         let n = document.getElementById('firstNotice');

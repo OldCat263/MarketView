@@ -37,3 +37,4 @@ deploy*.py
 *.bak
 *.swp
 .claude/skills/
+frontend/snapshot.json

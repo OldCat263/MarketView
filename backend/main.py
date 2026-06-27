@@ -169,6 +169,21 @@ async def lifespan(app: FastAPI):
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
             futures = {ex.submit(_load_one, key, fn): key for key, fn in modules}
             concurrent.futures.wait(futures)
+
+        # V1.8.6: 并行预加载完成后写首屏快照（wait 之后确保 6 模块全部就绪）
+        def _write_snapshot():
+            import os
+            snapshot = {}
+            for key in SHARD_CFG:
+                data = _cached_get(key)
+                if data != '[]' and data != '{}':
+                    snapshot[key] = json.loads(data)
+            snapshot['ts'] = time.time()
+            snapshot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'snapshot.json')
+            with open(snapshot_path, 'w', encoding='utf-8') as f:
+                json.dump(snapshot, f, ensure_ascii=False)
+            print('[snapshot] updated')
+        _write_snapshot()
     threading.Thread(target=_initial_load, daemon=True).start()
     yield
 
