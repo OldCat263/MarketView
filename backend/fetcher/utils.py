@@ -11,6 +11,8 @@ def _to_records(df) -> list:
         d = str(df[col].dtype)
         if any(k in d for k in ('datetime', 'timestamp', 'period', 'timedelta')):
             df[col] = df[col].astype(str)
+        elif d == 'object' or d == 'str':
+            df[col] = df[col].fillna('')
         else:
             df[col] = df[col].fillna(0)
     return df.to_dict('records')
