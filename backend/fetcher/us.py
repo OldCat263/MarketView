@@ -1,7 +1,9 @@
 """模块五：美股 — 腾讯 qt.gtimg.cn 优先(线程池并发)，东财/新浪备选"""
-import json, time, httpx, akshare as ak
+import json, time, os, httpx, akshare as ak
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import _safe_float, _to_json, _to_records
+
+_US_CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.cache', 'us_codes.json')
 
 def fetch_shard(shard_idx, total_shards):
     codes = _load_us_codes()
@@ -17,6 +19,16 @@ def _load_us_codes():
     now = time.time()
     if _us_codes_cache and now - _us_codes_ts < 86400:
         return _us_codes_cache
+    # 尝试磁盘缓存
+    if _us_codes_cache is None and os.path.exists(_US_CODES_FILE):
+        try:
+            with open(_US_CODES_FILE, 'r', encoding='utf-8') as f:
+                _us_codes_cache = json.load(f)
+            _us_codes_ts = now
+            return _us_codes_cache
+        except Exception:
+            pass
+    # 回退到 AkShare
     try:
         df = ak.stock_us_spot_em()
         codes = [str(r['代码']) for _, r in df.iterrows()]
@@ -25,6 +37,13 @@ def _load_us_codes():
         codes = [str(r.get('symbol','')) for _, r in df.iterrows() if r.get('symbol')]
     _us_codes_cache = codes
     _us_codes_ts = now
+    # 持久化
+    try:
+        os.makedirs(os.path.dirname(_US_CODES_FILE), exist_ok=True)
+        with open(_US_CODES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(codes, f)
+    except Exception:
+        pass
     return codes
 
 def _parse_tencent_us(line):
