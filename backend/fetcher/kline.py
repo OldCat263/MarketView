@@ -136,10 +136,14 @@ def _fetch_binance(symbol, period, count):
                 client_kwargs['proxy'] = _found_proxy
         resp = httpx.get(url, **client_kwargs)
         raw = resp.json()
+        if period in ('1m','5m','15m','30m','60m'):
+            fmt = '%Y-%m-%d %H:%M'
+        else:
+            fmt = '%Y-%m-%d'
         rows = []
         for item in raw:
             rows.append([
-                time.strftime('%Y-%m-%d', time.gmtime(item[0] / 1000)),
+                time.strftime(fmt, time.gmtime(item[0] / 1000)),
                 float(item[1]),  # open
                 float(item[4]),  # close
                 float(item[2]),  # high
