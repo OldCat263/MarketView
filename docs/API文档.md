@@ -157,15 +157,15 @@ GET /api/hk/spot
 
 ---
 
-## 6. 美股 — 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪
+## 6. 美股 — AkShare stock_us_spot_em() 为主源（V2.0.3 切换）
 
 ```
 GET /api/us/spot
 ```
 
-**数据源**: 腾讯 qt.gtimg.cn（us前缀，优先）→ 东财 → 新浪
-**缓存**: 服务端分片缓存 + 滚动刷新（首次预热 ~8 分钟，17636 条）
-**注意**: 首次启动需从 AkShare 拉取代码列表（1 天缓存），后续秒级响应
+**数据源**: AkShare `stock_us_spot_em()` 为主源（V2.0.3 切换，腾讯不支持 dot-suffix 代码如 105.INLF/107.SOXS 导致 0 条）→ 新浪 `stock_us_spot`
+**缓存**: threading.Lock 全局缓存 TTL 5min + 磁盘持久化 `spot_cache.json`，重启秒恢复
+**注意**: 首次冷启动需 ~5 分钟（135 批 akshare），热完后磁盘缓存永久有效
 
 | 响应字段 | 类型 | 说明 |
 |----------|------|------|
@@ -183,14 +183,15 @@ GET /api/us/spot
 
 ---
 
-## 7. 指数 — 东财/新浪（global 需海外网络）
+## 7. 指数 — 东财/AkShare/新浪
 
 ```
 GET /api/index/spot
 ```
 
-**数据源**: 东财 → 新浪（global 字段需海外网络，限流/无代理时为空）
-**缓存**: 服务端分片缓存 + 滚动刷新
+**数据源**: 东财 `index_global_spot_em` 为主源 → 新浪（global 字段需海外网络，限流/无代理时为空）
+**K线**: A股指数走腾讯，全球指数（dji/^IXIC/^GSPC）走 AkShare `index_us_stock_sina`（V2.0.3，腾讯不支持纯字母指数代码）
+**缓存**: 服务端分片缓存 + 滚动刷新 + 磁盘持久化
 
 | 响应字段 | 类型 | 说明 |
 |----------|------|------|
@@ -261,14 +262,15 @@ GET /api/kline/{module}/{code}?period=1d&count=750
 | 参数 | 必须 | 默认 | 说明 |
 |------|------|------|------|
 | module | 是 | — | stock/etf/hk/us/index/crypto |
-| code | 是 | — | 股票代码（带市场前缀，如 sh600519 / usAAPL / BTCUSDT）|
+| code | 是 | — | 股票代码（带市场前缀，如 sh600519 / usAAPL / BTCUSDT；全球指数不带前缀如 dji）|
 | period | 否 | 1d | 1m/5m/15m/30m/60m/1d/1w/1M |
 | count | 否 | 750 | 拉取根数（B 中等：日 K 3年 ≈ 750 根）|
 
 **数据源**:
-- A股/ETF/指数: 腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
+- A股/ETF/指数(A股): 腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`
 - 港股: 腾讯 `appstock/app/hkfqkline/get`（主源）→ 东财 `stock_hk_hist` → 新浪 `stock_hk_spot`（兜底，V1.7.0 Step 2）
 - 美股: 腾讯 `appstock/app/usfqkline/get`（us 前缀）
+- 全球指数: AkShare `index_us_stock_sina`（V2.0.3，腾讯不支持纯字母指数代码如 dji/^IXIC/^GSPC）
 - 加密: Binance `/api/v3/klines`
 
 **响应**:
@@ -428,16 +430,57 @@ curl -N -m 6 'http://localhost:8000/api/stream/news' 2>&1 | grep -c 'shard.-1'
 ### 11.1 完整流水线
 
 ```
-GET /api/predict/analyze/{module}/{code}?period=1d&count=200&with_ai=false
+GET /api/predict/analyze/{module}/{code}?period=1d&count=100&with_ai=false
+> V2.0.1: 默认 count 从 200 改为 100（quick 模式，10 因子最大需求 60，100 有余量）
 ```
 
 | 参数 | 必须 | 默认 | 说明 |
 |------|------|------|------|
-| period | 否 | 1d | K线周期 |
+| module | 是 | — | stock/etf/hk/us/index/crypto |
+| code | 是 | — | 股票代码，如 sh600519 |
+| period | 否 | 1d | K线周期（1d/1w/1m/5m 等） |
 | count | 否 | 200 | K线根数 |
-| with_ai | 否 | false | 是否启用AI分析 |
+| with_ai | 否 | false | true=完整档(7维+AI)，false=快速档(4维) |
 
-返回: chanlun(买卖点/中枢/走势/背驰) + backtest(9指标) + score(七维) + quant_factors(10因子) + similar_setups + multi_period + AI
+**响应字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| chanlun | object | 缠论分析（见下） |
+| chanlun.has_bi | bool | 是否检测到笔 |
+| chanlun.buy_points | array | 一类买点 [{date, price, type, reason, strength}] |
+| chanlun.sell_points | array | 一类卖点 |
+| chanlun.buy_points_ext | array | 二三类买点 |
+| chanlun.sell_points_ext | array | 二三类卖点 |
+| chanlun.zhongshu_list | array | 中枢 [{zg, zd, level, position, amplitude}] |
+| chanlun.zoushi | object | 走势 {type: 上涨/下跌/盘整, direction} |
+| chanlun.beichi_list | array | 背驰 [{type: 顶背驰/底背驰, date, price, strength}] |
+| chanlun.bi_list | array | 笔列表 |
+| backtest | object | 回测结果 |
+| backtest.stats | object | 按信号类型分组 {一类买: {}, all: {}} |
+| backtest.stats.all | object | 9 指标 {sample_count, win_rate, avg_return, pl_ratio, sharpe, max_drawdown, max_consec_loss, profit_factor, hold_avg, hold_med} |
+| score | object | 七维评分 |
+| score.chanlun | float | 缠论评分 (0-100) |
+| score.backtest | float | 回测评分 |
+| score.quant_factors | float | 量化因子综合 |
+| score.tech_indicators | float | 技术指标 |
+| score.fundamental | float | 基本面（快速档=50） |
+| score.capital_flow | float | 资金面（快速档=50） |
+| score.news_sentiment | float | 新闻情绪（快速档=50） |
+| score.total_score | float | 综合评分 (0-100) |
+| quant_factors | object | 10 因子 {q1_momentum~q10_north_corr, quant_score} |
+| similar_setups | array | 历史相似场景 [{date, zg, zd, result_30d, signal}]（仅完整档） |
+| multi_period | object | 多周期确认 {weekly_zoushi, factor: 0.7~1.3, signal}（仅完整档） |
+| fundamental | object | 基本面 {available, pe, pb, roe, rev_growth, profit_growth, north_flow, main_capital, margin_balance}（仅完整档） |
+| ai | object | AI 分析（仅 with_ai=true） |
+| ai.analysis_text | string | AI 原文 |
+| ai.signal | string | buy/sell/hold |
+| ai.confidence | int | 置信度 0-100 |
+| ai.source | string | pollinations / zhipu / local |
+| ai.risk_level | string | 高/中/低 |
+| elapsed_ms | int | 耗时 |
+
+> 快速档(4维)<100ms, 完整档(7维+AI)~5s
 
 ### 11.2 基本面
 
@@ -445,16 +488,62 @@ GET /api/predict/analyze/{module}/{code}?period=1d&count=200&with_ai=false
 GET /api/fundamental/{module}/{code}
 ```
 
+| 参数 | 必须 | 说明 |
+|------|------|------|
+| module | 是 | 仅 stock 模块返回 available:true |
+| code | 是 | 如 sh600519 |
+
+**响应字段**：pe, pb, roe, rev_growth, profit_growth, north_flow, main_capital, margin_balance, available, source, ts
+
+> 非A股模块返回 `available:false` + 中性值
+
 ### 11.3 批量排行
 
 ```
-GET /api/predict/rank/{module}?period=1d&limit=50
-POST /api/predict/batch/{module}?pool_size=300  # 触发计算
-GET /api/predict/status/{module}               # 进度
-GET /api/stream/predict/{module}               # SSE
+POST /api/predict/batch/{module}?pool_size=200   # 触发批量计算（异步）
+> V2.0.1: pool_size 默认从 300 改为 200，K线走共享缓存
+GET /api/predict/status/{module}?period=1d       # 查询进度
+GET /api/predict/rank/{module}?period=1d&limit=50 # 读取排行结果
 ```
 
-> 快速档(4维)<100ms, 完整档(7维+AI)~5s
+**rank 响应字段**：每条含 code, name, score, quant_factors, pct_total(百分位), pct_chanlun
+
+**status 响应字段**：{progress, total, status: running/done/error}
+
+### 11.4 预测 SSE
+
+```
+GET /api/stream/predict/{module}
+```
+
+批量计算完成后推送 `rank_update` 事件，30s 无数据发 `ping` 心跳。
+
+---
+
+## 12. V2.0.2 磁盘持久化缓存
+
+服务器重启时，内存缓存（`_cache` / `_predict_cache` / `_kline_cache` / `_predict_status`）全部丢失。V2.0.2 引入磁盘持久化层，启动时从 `backend/.cache/` 恢复数据，避免首次请求空窗。
+
+### 缓存文件
+
+| 文件 | 内容 | 大小 |
+|------|------|------|
+| `backend/.cache/spot_cache.json` | 全模块 spot 数据 + predict 排行 + predict_status | ~200-300KB |
+| `backend/.cache/kline_cache.json` | K 线数据（最多 500 key，LRU 淘汰） | ~500KB-1MB |
+
+### 写入策略
+
+- **原子写入**：所有写入使用 `tmp + os.replace`，防止 crash 损坏
+- **加载降级**：`try/except json.JSONDecodeError` 兜底，磁盘损坏降级为空缓存
+- **并发安全**：shallow copy 后释放锁再写磁盘
+- **Spot + Predict 持久化**：每 30s `_save_cache()` dump 全模块到 `spot_cache.json`
+- **Predict Daemon**：独立线程延迟 30s 启动，每 5min 重算排行并自动保存
+- **K 线持久化**：`set_kline_cache()` 同时写内存和磁盘，启动时从 `kline_cache.json` 恢复
+- **LRU 上限**：K 线缓存最多 500 key，超出淘汰最旧的
+
+### Predict 状态持久化
+
+`_predict_status` 随 `spot_cache.json` 一起持久化。启动时恢复为 `{'status': 'done', ...}`，不再显示 `not started`。
 
 ---
 

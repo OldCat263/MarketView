@@ -1,5 +1,6 @@
-"""模块七：K线数据 — 腾讯 qt.gtimg.cn（A股/ETF/指数/港股/美股），Binance（加密）
+"""模块七：K线数据 — 腾讯 qt.gtimg.cn（A股/ETF/指数-A股/港股/美股），Binance（加密），AkShare index_us_stock_sina（全球指数如 dji/^IXIC/^GSPC，V2.0.3 新增）
 港股 3 源 fallback：tencent hkfqkline → 东财 stock_hk_hist → 新浪 stock_hk_spot
+全球指数 fallback：腾讯不支持纯字母指数代码 → AkShare index_us_stock_sina
 """
 import json, time, httpx
 
@@ -251,8 +252,57 @@ def fetch_kline_us(code, period='1d', count=750):
     return _fetch_tencent(code, period, count)
 
 
+# ── BUG11: 全球指数代码映射（腾讯不支持，用 akshare）──
+_GLOBAL_INDEX_MAP = {
+    'dji':    '.DJI',
+    '^dji':   '.DJI',
+    '^IXIC':  '.IXIC',
+    '^GSPC':  '.GSPC',
+    'ixic':   '.IXIC',
+    'gspc':   '.GSPC',
+    'ndx':    '.NDX',
+}
+_GLOBAL_INDEX_AK_PERIOD = {'1d': 'daily', '1w': 'weekly', '1M': 'monthly'}
+
+
+def _fetch_global_index_kline(code, period, count):
+    """全球指数 K线 — akshare (akshare 只支持日/周/月)"""
+    ak_period = _GLOBAL_INDEX_AK_PERIOD.get(period)
+    if not ak_period:
+        return []  # 分钟线不支持
+    ak_code = _GLOBAL_INDEX_MAP.get(code.lower(), code)
+    if not ak_code.startswith('.'):
+        ak_code = '.' + ak_code
+    import akshare as ak
+    try:
+        df = ak.index_us_stock_sina(symbol=ak_code)
+        if df is None or len(df) == 0:
+            return []
+        df = df.tail(count)
+        rows = []
+        for _, row in df.iterrows():
+            rows.append([
+                str(row.get('date', '')),
+                float(row.get('open', 0)),
+                float(row.get('close', 0)),
+                float(row.get('high', 0)),
+                float(row.get('low', 0)),
+                float(row.get('volume', 0)),
+                float(row.get('amount', 0)),
+            ])
+        return rows
+    except Exception as e:
+        print(f'[kline_index] akshare global: {e}')
+        return []
+
+
 def fetch_kline_index(code, period='1d', count=750):
-    """指数 K线 — 腾讯"""
+    """指数 K线 — 全球指数用 akshare，A股指数用腾讯"""
+    # 纯字母/^开头 → 全球指数，走 akshare
+    code_lower = code.lower().lstrip('^')
+    if code_lower in _GLOBAL_INDEX_MAP or code_lower in ('dji', 'ixic', 'gspc', 'ndx'):
+        return _fetch_global_index_kline(code, period, count)
+    # A股指数 → 腾讯
     return _fetch_tencent(code, period, count)
 
 

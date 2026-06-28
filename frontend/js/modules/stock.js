@@ -1,4 +1,4 @@
-// 模块二：A股 — 腾讯 qt.gtimg.cn 优先
+// 模块二：A股 — 东方财富 push2 JSON
 MV.register({
   id: 'stock',
   icon: '📈', name: 'A股',

@@ -6,6 +6,7 @@
 
 - ⚡ **实时**：分片 SSE 推送 + 3s 心跳，数据延迟 < 5s
 - 📈 **K 线**：6 模块全支持，8 周期，MA/BOLL/MACD 指标
+- 🤖 **智能预测**：缠论 + 10 因子 + 回测 + AI 分析（V2.0.1）
 - 🆓 **零成本**：仅用免费公开 API（腾讯/Binance/AkShare/新浪）
 - 🚫 **零存储**：纯内存 + 客户端 sessionStorage
 - 📱 **响应式**：手机/平板/桌面自适应
@@ -48,6 +49,7 @@ uvicorn main:app --workers 1
 | 指数 | 东财 → 新浪 |
 | 加密 | Binance API（需 `CRYPTO_PROXY`）|
 | K线 | 腾讯 K线 + Binance klines（V1.7.0+）|
+| 智能预测 | 缠论 + 回测 + 10因子 + AI分析（V2.0.1+）|
 
 ## ⭐ AI Skill（按角色触发，节省 token）
 
@@ -61,4 +63,4 @@ python .trae/skills/mv-validator/scripts/mv_validate.py all  # 一键跑 6 模�
 
 ---
 
-**版本**：V1.9.0 封版 / V1.8.5 性能+稳定性（9 项）/ V1.8.6 秒开体验（5 项）/ V1.9.0 P0 修复（7 项）/ 14 commits
+**版本**：V2.0.0→V2.0.1 智能预测加载加速➕MCP（已封版）/ V2.0.0 智能预测系统（缠论+10因子+AI）/ V1.9.0 P0 修复（7项）/ V1.8.6 秒开体验（5项）

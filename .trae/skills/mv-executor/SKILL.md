@@ -37,6 +37,7 @@ description: "MarketView 执行者。写代码/跑验收/同步技术文档/回�
 - §0.1 分工表（**未同步技术文档 = P1 缺陷**）
 - 5 步：小步 commit + 跑验收 + 套回报模板
 - 协作流程 10 步（你是第 5~6 步）
+- V2.0.0+ predict 模块：5 新文件（chanlun/fundamentals/backtest/scorer/ai_analyzer）+ 6 API 端点
 
 ## 注意
 

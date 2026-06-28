@@ -1,69 +1,102 @@
-"""模块五：美股 — 腾讯 qt.gtimg.cn 优先(线程池并发)，东财/新浪备选"""
-import json, time, os, httpx, akshare as ak
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from .utils import _safe_float, _to_json, _to_records
+"""模块五：美股 — 腾讯 qt.gtimg.cn 为主源（白名单全干净代码，无dot-suffix，腾讯完全支持）
+V2.0.3: 白名单过滤，仅保留中概股+全球龙头+中概ETF ~150只
+V2.1.0: 切腾讯源（从akshare全量13538只→腾讯直接查白名单150只）+ 加分类字段 + 3分片/5s
+"""
+import json, time, os, httpx
+from .utils import _safe_float
 
 _US_CODES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.cache', 'us_codes.json')
 
-def fetch_shard(shard_idx, total_shards):
-    codes = _load_us_codes()
-    # V1.8.6: 分片 0 先拉热门股（前 100 只）
-    if shard_idx == 0:
-        return _from_tencent_threaded(codes[:100], workers=3)
-    # 其余分片覆盖 codes[100:] 全量，无缺口
-    rest = codes[100:]
-    n_rest = total_shards - 1
-    chunk = max(1, len(rest) // n_rest)
-    my_idx = shard_idx - 1
-    my = rest[my_idx*chunk:(my_idx+1)*chunk] if my_idx < n_rest-1 else rest[my_idx*chunk:]
-    return _from_tencent_threaded(my, workers=min(3, len(my)//50+1))
+# V2.1.0 白名单 + 分类（与中国联动密切的美股）
+_US_CATEGORY = {
+    # ── 中概股 ADR（与中国资产联动最紧）──
+    'BABA': '中概股','JD': '中概股','PDD': '中概股','BIDU': '中概股','NIO': '中概股',
+    'XPEV': '中概股','LI': '中概股','BILI': '中概股','TME': '中概股','NTES': '中概股',
+    'ZTO': '中概股','TAL': '中概股','VIPS': '中概股','IQ': '中概股','BZ': '中概股',
+    'BEKE': '中概股','YMM': '中概股','TCOM': '中概股','DADA': '中概股','GDS': '中概股',
+    'HUYA': '中概股','DOYU': '中概股','RLX': '中概股','MNSO': '中概股','HSAI': '中概股',
+    'ZLAB': '中概股','BGNE': '中概股','FUTU': '中概股','TIGR': '中概股','ATHM': '中概股',
+    'BEDU': '中概股','QFIN': '中概股','LU': '中概股','YUMC': '中概股','HCM': '中概股',
+    'KC': '中概股','TUYA': '中概股','NOAH': '中概股','CAN': '中概股','JKS': '中概股',
+    'CSIQ': '中概股','DQ': '中概股','GSX': '中概股','YI': '中概股','ZH': '中概股',
+    'WB': '中概股','SOHU': '中概股','YY': '中概股','MOGU': '中概股','NIU': '中概股',
+    'WDH': '中概股','FINV': '中概股','LX': '中概股','EH': '中概股','EDU': '中概股',
+    'GOTU': '中概股','VNET': '中概股','SMI': '中概股','JFIN': '中概股','XNET': '中概股',
+    'API': '中概股','CCM': '中概股','DDL': '中概股',
+    # ── 全球科技龙头 ──
+    'AAPL': '全球龙头','MSFT': '全球龙头','NVDA': '全球龙头','GOOGL': '全球龙头',
+    'AMZN': '全球龙头','META': '全球龙头','TSLA': '全球龙头','NFLX': '全球龙头',
+    'CRM': '全球龙头','ORCL': '全球龙头','ADBE': '全球龙头','AMD': '全球龙头',
+    'INTC': '全球龙头','QCOM': '全球龙头','AVGO': '全球龙头','TXN': '全球龙头',
+    'MU': '全球龙头','AMAT': '全球龙头','LRCX': '全球龙头','ASML': '全球龙头',
+    'TSM': '全球龙头','ARM': '全球龙头','SNOW': '全球龙头','PLTR': '全球龙头','NOW': '全球龙头',
+    # ── 金融/消费/医疗巨头（全球风向标）──
+    'JPM': '全球龙头','GS': '全球龙头','V': '全球龙头','MA': '全球龙头','BAC': '全球龙头',
+    'C': '全球龙头','WFC': '全球龙头','MS': '全球龙头','AXP': '全球龙头','BLK': '全球龙头',
+    'JNJ': '全球龙头','PFE': '全球龙头','MRK': '全球龙头','ABBV': '全球龙头','BMY': '全球龙头',
+    'LLY': '全球龙头','UNH': '全球龙头','MRNA': '全球龙头',
+    'XOM': '全球龙头','CVX': '全球龙头','WMT': '全球龙头','COST': '全球龙头','DIS': '全球龙头',
+    'NKE': '全球龙头','SBUX': '全球龙头','MCD': '全球龙头','KO': '全球龙头','PEP': '全球龙头',
+    'PG': '全球龙头','HD': '全球龙头','LOW': '全球龙头',
+    'BA': '全球龙头','CAT': '全球龙头','GE': '全球龙头','UBER': '全球龙头','PYPL': '全球龙头',
+    'SQ': '全球龙头','COIN': '全球龙头','MSTR': '全球龙头','RIVN': '全球龙头','LCID': '全球龙头',
+    # ── 中概相关 ETF ──
+    'FXI': '中概ETF','KWEB': '中概ETF','MCHI': '中概ETF','ASHR': '中概ETF','CQQQ': '中概ETF',
+    'KBA': '中概ETF','KALL': '中概ETF','PGJ': '中概ETF','CXSE': '中概ETF','CHIQ': '中概ETF',
+    'CHAU': '中概ETF','YINN': '中概ETF','YANG': '中概ETF',
+    'TQQQ': '中概ETF','SQQQ': '中概ETF','SPY': '中概ETF','QQQ': '中概ETF','IWM': '中概ETF',
+    'DIA': '中概ETF','EEM': '中概ETF','VWO': '中概ETF','XLF': '中概ETF','XLE': '中概ETF',
+    'XLK': '中概ETF','XLV': '中概ETF',
+    # ── 港股二次上市 ADR ──
+    'TCEHY': '港股ADR','NTDOY': '港股ADR','NSRGY': '港股ADR','RHHBY': '港股ADR',
+    'UL': '港股ADR','NVS': '港股ADR','HSBC': '港股ADR','SONY': '港股ADR','TM': '港股ADR',
+    'BUD': '港股ADR',
+}
 
-_us_codes_cache = None
-_us_codes_ts = 0
+_US_WHITELIST = set(_US_CATEGORY.keys())
+_US_CODES_SORTED = None
+
 
 def _load_us_codes():
-    global _us_codes_cache, _us_codes_ts
-    now = time.time()
-    if _us_codes_cache and now - _us_codes_ts < 86400:
-        return _us_codes_cache
-    # 尝试磁盘缓存
-    if _us_codes_cache is None and os.path.exists(_US_CODES_FILE):
-        try:
-            with open(_US_CODES_FILE, 'r', encoding='utf-8') as f:
-                _us_codes_cache = json.load(f)
-            _us_codes_ts = now
-            return _us_codes_cache
-        except Exception:
-            pass
-    # 回退到 AkShare
+    """加载白名单代码列表"""
+    global _US_CODES_SORTED
+    if _US_CODES_SORTED:
+        return _US_CODES_SORTED
     try:
-        df = ak.stock_us_spot_em()
-        codes_with_vol = [(str(r['代码']), float(r.get('成交量', 0) or 0)) for _, r in df.iterrows()]
-        codes_with_vol.sort(key=lambda x: x[1], reverse=True)  # 成交量降序，热门在前
-        codes = [c for c, _ in codes_with_vol]
+        with open(_US_CODES_FILE, 'r', encoding='utf-8') as f:
+            _US_CODES_SORTED = json.load(f)
+        return _US_CODES_SORTED
     except Exception:
-        df = ak.stock_us_spot()
-        codes = [str(r.get('symbol','')) for _, r in df.iterrows() if r.get('symbol')]
-    _us_codes_cache = codes
-    _us_codes_ts = now
-    # 持久化
+        pass
+    _US_CODES_SORTED = sorted(_US_WHITELIST)
     try:
         os.makedirs(os.path.dirname(_US_CODES_FILE), exist_ok=True)
         with open(_US_CODES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(codes, f)
+            json.dump(_US_CODES_SORTED, f)
     except Exception:
         pass
-    return codes
+    return _US_CODES_SORTED
+
 
 def _parse_tencent_us(line):
-    if '="' not in line: return None
+    """解析腾讯美股 qt.gtimg.cn 响应行"""
+    if '="' not in line:
+        return None
     _, data = line.split('="', 1)
     fields = data.rstrip('";\n').split('~')
-    if len(fields) < 35: return None
+    if len(fields) < 35:
+        return None
+    code_full = fields[2]
+    code = code_full.split('.')[0] if '.' in str(code_full) else code_full
+    category = _US_CATEGORY.get(code, '其他')
     return {
-        '代码': fields[2], '名称': fields[1],
-        '最新价': _safe_float(fields[3]), '昨收': _safe_float(fields[4]),
-        '今开': _safe_float(fields[5]), '成交量': _safe_float(fields[6]),
+        '代码': code,
+        '名称': fields[1],
+        '分类': category,
+        '最新价': _safe_float(fields[3]),
+        '昨收': _safe_float(fields[4]),
+        '今开': _safe_float(fields[5]),
+        '成交量': _safe_float(fields[6]),
         '涨跌额': _safe_float(fields[31]) if len(fields) > 31 else 0,
         '涨跌幅': _safe_float(fields[32]) if len(fields) > 32 else 0,
         '最高': _safe_float(fields[33]) if len(fields) > 33 else 0,
@@ -71,30 +104,38 @@ def _parse_tencent_us(line):
         '成交额': _safe_float(fields[37]) if len(fields) > 37 else 0,
     }
 
-def _from_tencent_threaded(codes, workers=11):
-    batches = [codes[i:i+50] for i in range(0, len(codes), 50)]
+
+def _from_tencent(codes):
+    """腾讯串行拉取（~150 只/3 批，< 3s）"""
+    batches = [codes[i:i + 50] for i in range(0, len(codes), 50)]
     result = []
-    def fetch_batch(batch):
+    for batch in batches:
         try:
-            # 腾讯需要 us 前缀 + 去后缀（AAPL.OQ → usAAPL）
-            codes_clean = [str(c).replace('.OQ','').replace('.N','').replace('.AM','') for c in batch]
-            url = 'https://qt.gtimg.cn/q=' + ','.join('us' + c for c in codes_clean)
-            resp = httpx.get(url, timeout=30)
-            return [r for r in (_parse_tencent_us(l) for l in resp.text.split('\n')) if r]
-        except Exception: return []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = [ex.submit(fetch_batch, b) for b in batches]
-        for f in as_completed(futures): result.extend(f.result())
+            url = 'https://qt.gtimg.cn/q=' + ','.join('us' + str(c) for c in batch)
+            resp = httpx.get(url, timeout=15)
+            for line in resp.text.split('\n'):
+                r = _parse_tencent_us(line)
+                if r:
+                    result.append(r)
+        except Exception as e:
+            print(f'[us] batch error: {e}', flush=True)
     return result
 
+
+def fetch_shard(shard_idx, total_shards):
+    """美股分片：腾讯直接查白名单 150 只（V2.1.0 串行拉取，3 分片/5s）"""
+    codes = _load_us_codes()
+    chunk = max(1, len(codes) // total_shards)
+    s = shard_idx * chunk
+    e = s + chunk if shard_idx < total_shards - 1 else len(codes)
+    return _from_tencent(codes[s:e])
+
+
 def get_json():
+    """美股实时行情 — 腾讯 qt.gtimg.cn（白名单 ~150 只，秒级返回）"""
     try:
-        codes = _load_us_codes()
-        rows = _from_tencent_threaded(codes)
-        if rows: return json.dumps(rows, ensure_ascii=False)
-    except Exception as e: print(f'[us] fallback: {e}')
-    try: return _to_json(ak.stock_us_spot_em())
-    except Exception as e: print(f'[us] fallback: {e}')
-    try: return _to_json(ak.stock_us_spot())
-    except Exception as e: print(f'[us] fallback: {e}')
-    return '[]'
+        rows = _from_tencent(list(_US_WHITELIST))
+        return json.dumps(rows, ensure_ascii=False) if rows else '[]'
+    except Exception as e:
+        print(f'[us] get_json error: {e}', flush=True)
+        return '[]'

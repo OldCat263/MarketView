@@ -31,7 +31,7 @@ MV.register({
     // 工具栏
     html += '<div style="display:flex;gap:8px;align-items:center;padding:8px 0;flex-wrap:wrap">';
     html += '<select id="predictModule" onchange="MV.Predict.switchModule()" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px">';
-    ['stock','etf','hk','us','index','crypto'].forEach(function(m) {
+    ['stock','etf','index'].forEach(function(m) {
       html += '<option value="' + m + '"' + (m === module ? ' selected' : '') + '>' + (MV.registry[m] ? MV.registry[m].name : m) + '</option>';
     });
     html += '</select>';
@@ -41,6 +41,11 @@ MV.register({
     html += '<button onclick="MV.Predict.loadRank()" style="background:var(--accent);color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer">批量刷新</button>';
     html += '<span id="predictProgress" style="font-size:12px;color:var(--dim);margin-left:8px"></span>';
     html += '</div>';
+
+    // V2.0.3 风险提示
+    html += '<div style="margin:8px 0;padding:8px 12px;background:var(--card);border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:var(--dim);line-height:1.6">' +
+      '⚠️ <b>免责声明</b>：本预测指标仅适用于 <b>A股、ETF、指数</b>。该评分体系基于A股市场特征设计（缠论/均线/量能/涨跌停等因子），<b>不适用于港股、美股、加密货币</b>等其他金融市场。评分结果仅供参考，不构成任何投资建议。' +
+      '</div>';
 
     // Tab 内容区
     html += '<div id="tabSignals" class="predict-tab" style="display:block">';
@@ -161,27 +166,43 @@ MV.Predict = {
     var m = predictState.currentModule;
     var p = predictState.currentPeriod;
     var prog = document.getElementById('predictProgress');
-    if (prog) prog.textContent = '加载中...';
+    if (prog) prog.textContent = '连接中...';
 
-    // 先触发批量计算
-    fetch(MV.API + '/api/predict/batch/' + m + '?period=' + p + '&pool_size=200', { method: 'POST' })
-      .then(function() {
-        // 等 3s 后取结果
-        setTimeout(function() {
-          fetch(MV.API + '/api/predict/rank/' + m + '?period=' + p + '&limit=50')
-            .then(function(r) { return r.json(); })
-            .then(function(resp) {
-              var data = resp.data || [];
-              predictState.ranking = data;
-              predictState.signals = data.slice(0, 30);
-              if (prog) prog.textContent = data.length + ' 只已排行';
-              // 重渲染
-              MV.Predict.rerender();
-            })
-            .catch(function() { if (prog) prog.textContent = '加载失败'; });
-        }, 3000);
-      })
-      .catch(function() { if (prog) prog.textContent = '触发失败'; });
+    // 关闭旧 SSE
+    if (this._sse) { this._sse.close(); this._sse = null; }
+
+    // 触发批量计算
+    fetch(MV.API + '/api/predict/batch/' + m + '?period=' + p + '&pool_size=200', { method: 'POST' });
+
+    // SSE 即时推送（V2.0.1：替代 3s 硬等轮询）
+    var self = this;
+    this._sse = new EventSource(MV.API + '/api/stream/predict/' + m);
+    this._sse._reconnCount = 0;
+    this._sse.onmessage = function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'rank_update') {
+          var data = msg.data || [];
+          predictState.ranking = data;
+          predictState.signals = data.slice(0, 30);
+          if (prog) prog.textContent = data.length + ' 只已排行';
+          self.rerender();
+          // 收到结果后主动关闭 SSE
+          self._sse.close();
+          self._sse = null;
+        }
+      } catch(ex) {}
+    };
+    this._sse.onerror = function() {
+      this._reconnCount = (this._reconnCount || 0) + 1;
+      if (this._reconnCount >= 3) {
+        this.close();
+        self._sse = null;
+        if (prog) prog.textContent = '连接失败，请重试';
+      } else {
+        if (prog) prog.textContent = '重连中 (' + this._reconnCount + '/3)';
+      }
+    };
   },
 
   viewDetail: function(code) {
@@ -190,7 +211,7 @@ MV.Predict = {
     var prog = document.getElementById('predictProgress');
     if (prog) prog.textContent = '完整分析中...';
 
-    fetch(MV.API + '/api/predict/analyze/' + m + '/' + code + '?period=' + p + '&count=200&with_ai=true')
+    fetch(MV.API + '/api/predict/analyze/' + m + '/' + code + '?period=' + p + '&count=100&with_ai=true')
       .then(function(r) { return r.json(); })
       .then(function(data) {
         predictState.aiData = data;

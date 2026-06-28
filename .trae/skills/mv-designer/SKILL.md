@@ -39,3 +39,4 @@ description: "MarketView 设计师。出需求/设计稿/审批代码/维护 CLA
 - 协作流程 10 步（设计师/执行者/审批员/用户）
 - §0.1 分工表：设计文档你改 / 技术文档执行者改
 - §0.2 Skill 同步三问（角色/必读/工具变了 → 改 Skill）
+- V2.0.0+ 智能预测 11 步设计（5 新后端文件 + 6 API 端点 + predict.js + K线 markPoint/markArea）

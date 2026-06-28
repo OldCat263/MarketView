@@ -9,7 +9,7 @@
 - **名称**：MarketView
 - **干什么**：一站式展示全球金融市场实时数据 + K线图
 - **架构**：FastAPI 后端 + 多文件 HTML 前端（HTML骨架+CSS+核心引擎+模块注册） + 客户端 sessionStorage 缓存
-- **数据源**：AkShare + 腾讯 qt.gtimg.cn + Binance + 新浪（全部免费公开 API，无需注册）
+- **数据源**：东方财富 push2（stock/etf/index国内）+ 腾讯 qt.gtimg.cn（hk/us）+ Binance（crypto）+ AkShare（预测/指数全球）（全部免费公开 API）
 - **实时机制**：分片滚动刷新 + SSE 推送 + 3s 心跳（V1.6.0.6）
 - **图表**：ECharts 5（K线/V1.7.0+）
 - **角色**：设计师 / 执行者 / 审批员 / 用户（四方协作流程详见 [开发手册 §十](./docs/开发手册.md)）
@@ -27,12 +27,12 @@
 | `docs/部署文档.md` | 🚀 部署指南（Nginx + systemd + SSL） |
 | `docs/故障排查.md` | 🛠️ 故障排查手册 |
 | `backend/main.py` | FastAPI 入口，分片缓存 + SSE推送 |
-| `backend/fetcher/` | 数据获取模块（每模块独立文件，详见模块清单） |
+| `backend/fetcher/` | 数据获取模块（每模块独立文件，详见模块清单；V2.0.0+ 含 chanlun/fundamentals/backtest/scorer/ai_analyzer） |
 | `backend/requirements.txt` | Python 依赖 |
 | `frontend/index.html` | 前端入口 | 纯HTML骨架，加载CSS/JS模块 |
 | `frontend/css/main.css` | 样式 | 暗色主题，响应式 |
 | `frontend/js/core.js` | 核心引擎 | 状态管理/渲染/SSE/模块切换 |
-| `frontend/js/modules/*.js` | 8模块 | 每模块独立注册 |
+| `frontend/js/modules/*.js` | 9模块 | 每模块独立注册 |
 | `chanlun/` | 参考资料（只读） |
 | `.trae/skills/` | ⭐ 4 个 AI Skill（designer/executor/reviewer/validator），按角色触发节省 token |
 
@@ -41,18 +41,18 @@
 | # | 模块 | 数据源（优先级从左到右） | 数量 | 状态 |
 |---|------|------------------------|------|------|
 | 1 | 🪙 加密货币 | Binance API（需代理，服务器无代理时显示未检测） | 全量实时 | ✅ |
-| 2 | 📈 A股 | 腾讯 qt.gtimg.cn → 东财 → 新浪 | 全量实时 | ✅ |
-| 3 | 📊 ETF | 腾讯 qt.gtimg.cn → 东财 fund_etf_spot_em → 同花顺 | 全量实时 | ✅ |
+| 2 | 📈 A股 | 东方财富 push2 JSON（V2.2.0，5534只 4线程并发 ~6s）| 全量实时 | ✅ |
+| 3 | 📊 ETF | 东方财富 push2 JSON（V2.2.0，1663只 4线程并发 ~2s）| 全量实时 | ✅ |
 | 4 | 🌏 港股 | 腾讯 → 东财 stock_hk_spot_em → 新浪 stock_hk_spot | 全量实时 | ✅ |
-| 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（us前缀）→ 东财 → 新浪 | 全量实时 | ✅ |
-| 6 | 📉 指数 | 东财 → 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
+| 5 | 🇺🇸 美股 | 腾讯 qt.gtimg.cn（V2.1.0 切回，白名单 164 只 4 分类）→ AkShare stock_us_spot_em fallback | 164 只（中概股/全球龙头/中概ETF/港股ADR）| ✅ |
+| 6 | 📉 指数 | 东财/AkShare（全球指数 index_us_stock_sina）→ 新浪（global需海外网络，限流时为空） | 全量实时 | ✅ |
 | 7 | 📈 K线 | 6 模块全支持 + ECharts 三联图 + 分时图 + K线 SSE 5s 实时推送（V1.7.0 Step 1+2 ✅ / Step 3 ✅ / Step 4 ✅ / Step 4.5 ✅ / Step 5 ✅） | 全量实时 | ✅ |
 | 8 | 📰 新闻 | 新浪财经 HTTP（主源）→ 财新头条（fallback）（V1.8.0，60s 刷新，卡片流渲染） | 全量实时 | ✅ |
-| 9 | 🤖 智能预测 | 缠论+回测+10因子+基本面+AI（V1.9.0，按需即时+批量排行） | 全量实时 | ✅ |
+| 9 | 🤖 智能预测 | 缠论+回测+10因子+基本面+AI（V2.0.0，按需即时+批量排行） | 全量实时 | ✅ |
 
 ## 数据源详解
 
-### A股：腾讯 qt.gtimg.cn（主要）
+### A股：东方财富 push2 JSON（V2.2.0，5534只 4线程并发 ~6s）
 - 批量查询：50 只/请求，自动分批拉取全量
 - 字段：代码、名称、最新价、涨跌幅、涨跌额、成交量、成交额、最高、最低、今开、昨收、**振幅、换手率、量比**
 - 自动回退：东财 → 新浪
@@ -77,14 +77,15 @@
 - 前端卡片流渲染，时间倒序，搜索过滤
 - SSE 全量替换（非 diff）：新闻无"代码"字段，`_connectSSE` 加 `renderMode==='news'` 分支全量替换，不影响其他 6 模块
 
-### ETF/美股/指数：腾讯优先 + AkShare 备选（V1.8.5 加速）
+### ETF/美股/指数（V2.1.0 更新）
 - 所有模块均含数据源缓存，首次找到可用源后直接复用
 - ETF：腾讯 qt.gtimg.cn（50 只/请求，6 线程并发）→ 东财 fund_etf_spot_em → 同花顺
-- 美股：腾讯 qt.gtimg.cn（us 前缀，17209 条）→ 东财 → 新浪；**代码列表磁盘缓存** `.cache/us_codes.json`（重启 30s 恢复，原 8min）；**成交量降序排序**前 100 只热股优先拉取
+- 美股：腾讯 qt.gtimg.cn 为主源（V2.1.0 切回，白名单 164 只全干净代码无 dot-suffix）→ AkShare fallback；4 分类筛选（中概股/全球龙头/中概ETF/港股ADR）；**3 分片/5s 滚动刷新**
 - 指数：东财 index_global_spot_em → 新浪（global 字段需海外网络，限流时为空）
 
-### K线（V1.7.0+）：腾讯 K线接口 + Binance Klines
-- A股/ETF/指数：腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`（日/周/月）+ `ifzq.gtimg.cn/appstock/app/kline/mkline`（分钟 1m/5m/15m/30m/60m，不带 web 前缀）
+### K线（V1.7.0+ / V2.0.3 全球指数）
+- A股/ETF/指数(A股)：腾讯 `web.ifzq.gtimg.cn/appstock/app/fqkline/get`（日/周/月）+ `ifzq.gtimg.cn/appstock/app/kline/mkline`（分钟 1m/5m/15m/30m/60m，不带 web 前缀）
+- 全球指数（dji/^IXIC/^GSPC）：AkShare `index_us_stock_sina`（V2.0.3，腾讯不支持纯字母指数代码）
 - 港股：腾讯 `appstock/app/hfqkline/get`（hk 前缀）
 - 美股：腾讯 `appstock/app/usfqkline/get`（us 前缀）
 - 加密：Binance `/api/v3/klines`
@@ -113,7 +114,7 @@
 |---|------|
 | 1 | 核心文件不变，不许随意加文件 |
 | 2 | 先改 CLAUDE.md 再写代码 |
-| 3 | 零本地存储 |
+| 3 | 服务端缓存允许，数据源必须公开 API |
 | 4 | 数据源仅限免费公开 API |
 | 5 | 做完记录版本历史 |
 | 6 | 每个模块完全独立封装 |
@@ -125,10 +126,10 @@
 | 模块 | 首启 | 稳态滚动 | 数据量 | 数据源 |
 |------|------|----------|--------|--------|
 | 🪙 加密货币 | 0.5s（需代理） | — | 0（无代理） | Binance |
-| 📈 A股 | 63ms（并发） | 3s diff 闪动 + 3s 心跳 | 5528 条 | 腾讯 qt.gtimg.cn |
+| 📈 A股 | <6s（并发） | 5s diff 闪动 + 3s 心跳 | 5534 条 | 东方财富 push2 JSON |
 | 📊 ETF | **< 2s**（腾讯并发） | 3s diff 闪动 + 3s 心跳 | 1516 条 | 腾讯 qt.gtimg.cn |
 | 🌏 港股 | **< 30s 首次 / < 15s 后续** | 3s diff 闪动 + 3s 心跳 | 2773 条 | 腾讯 qt.gtimg.cn（并行）|
-| 🇺🇸 美股 | **~60s 首次 / 30s 重启**（磁盘缓存） | 3s diff 闪动 + 3s 心跳 | 17209 条 | 腾讯 qt.gtimg.cn（us 前缀）|
+| 🇺🇸 美股 | **< 3s**（V2.1.0 腾讯 3 批）| 3s diff 闪动 + 3s 心跳 | 164 只（4 分类） | 腾讯 qt.gtimg.cn |
 | 📉 指数 | <1s | 3s diff 闪动 + 3s 心跳 | 562 条 | 新浪 index_spot_sina |
 | 📈 K线（V1.7.0） | **< 1s 首次 / < 50ms 缓存命中**（V1.8.6） | 5s 推最新 K线 | 750 根（日K） | 腾讯 K线 + Binance klines |
 | 📰 新闻（V1.8.0） | ~2s | 60s 推增量 | ~50 条 | 新浪财经 HTTP + 财新头条 fallback |
@@ -346,6 +347,12 @@ python .trae/skills/mv-validator/scripts/mv_validate.py rules    # 铁律自检
 | V1.8.6 | 2026-06-28 | **5 项前端秒开 + 体验优化**（5 文件 / ~85 行）：**A** 前端懒惰加载 — `preloadAll()` 从 `Promise.all` 并行阻塞改为 for 循环逐个后台加载，首页立即可交互，卡片逐个 ⏳→✅。**B** K线服务端缓存 — `_kline_cache` TTL 5min，同股票同周期二次请求 < 50ms。**C** 美股热股预拉 — 代码按成交量降序排序，分片 0 优先拉前 100 只热门股（~3s 即显示）。**D** 首屏快照 — 后端并行预加载完成后写 `frontend/snapshot.json`，前端 `fetch` 快照零 HTTP 渲染，无快照降级走原逻辑。**E** 模块就绪信号 — `/api/health` 返回每模块缓存状态，前端每 5s 轮询，已就绪卡片明亮(opacity=1)，未就绪半透明(0.5) |
 | V1.9.0 | 2026-06-28 | **7 项 P0 修复**（前置应用，6 文件 / ~35 行）：① `kline.py` 分钟K线 `raw[-count:]` 取最新数据（原 `[:count]` 取最旧）② 加密日内K线 `fmt = '%Y-%m-%d %H:%M'` 含时分（原统一 `%Y-%m-%d` 丢时分）③ `utils.py` 先转时间列再 `fillna(0)` 数值列（原全局 `fillna(0)` 破坏 NaT）④ `__init__.py` 逐模块 `importlib.import_module` + try/except（原一行炸全炸）⑤ `core.js` `formatChinese` 删 `|| col.includes('涨跌')`（涨跌额误加 %）⑥ `kline.js` `_fmtClose()` 安全格式化昨收（`null.toFixed(2)` → TypeError 图表白屏）⑦ `requirements.txt` 补 `httpx>=0.27.0` |
 | V2.0.0 | 2026-06-28 | **智能预测系统**（11 步 / ~2700 行 / 5 新文件）：Step 1a `chanlun.py` 缠论基础层（包含处理→分型→笔→一类买卖点，~290行），Step 1b `utils.py` `_fallback()`+`_shard()`，Step 2 `fundamentals.py` 5接口基本面（~240行），Step 3 `backtest.py` 9指标回测（~200行），Step 3.5 `chanlun.py` 进阶层（线段→中枢→走势→背驰→二三买卖点，+290行），Step 4 `scorer.py` 七维评分+10因子+百分位（~450行），Step 5 `ai_analyzer.py` Pollinations+智谱 fallback（~260行），Step 6 `main.py` 6 端点 API 集成，Step 7 `kline.js` markPoint/markArea + O6搜索缓存，Step 8 `predict.js` 第9模块+三Tab，Step 9 predict CSS+ deploy 脚本，Step 10 文档同步。**零新依赖** |
+| V2.0.1 | 2026-06-28 | **智能预测加载加速 + MCP**（4 项 / ~60 行 / 4 文件 / 零新依赖 + mcp/marketview_mcp.py 8 tools）：A 启动预计算(_initial_load→6模块预测排名，60s就绪)，B K线走缓存(_kline_cache 迁utils.py，scorer共享复用)，C SSE即时推送(前端SSE替代3s轮询，含重连兜底)，D 精简蜡烛数(quick 200→100，2处改)。审批员3×P0+5×P1全修。 |
+| V2.0.1-hotfix | 2026-06-28 | **热修复：stock/etf 代码前缀缺失**（~15 行 / 2 文件 / 零新依赖）。改动：`backend/main.py` — `_stock_prefix()` / `_CODE_PREFIX` / items 解包 + isinstance / crypto 跳过；`backend/fetcher/scorer.py` — K线缓存补 indicators。审批：设计师 + 审批员（GLM-5.2）双通过 ✅ 已封版。 |
+| V2.0.2 | 2026-06-28 | **全模块磁盘持久化缓存**（7 文件 / ~200 行）：`backend/main.py` — `_load_cache()` / `_save_cache()` / `_predict_daemon` + `_predict_status` 持久化；`backend/fetcher/utils.py` — K 线磁盘缓存（首次拉永不重拉）+ 原子写入；`mcp/marketview_mcp.py` — `import asyncio` / 版本号 V2.0.2。审批：设计师 + 审批员（GLM-5.2）双通过 ✅ 已封版。 |
+| V2.0.3 | 2026-06-28 | **3 个 P1 修复**（4 文件 / ~80 行）：**BUG8** 美股 — `us.py` 切 `ak.stock_us_spot_em()` + `threading.Lock` 全局缓存（解决腾讯 dot-suffix 不认 105.INLF 等代码导致 0 条）; **BUG10** predict daemon — 从 roller 内存缓存读代码列表，不调 akshare（解决 fetcher 与 11 个 roller shard 同时调 `stock_zh_a_spot()` 限速互抢）; **BUG11** 全球指数 K 线 — `kline.py` 新增 `_GLOBAL_INDEX_MAP` + `ak.index_us_stock_sina`（dji/^IXIC/^GSPC 腾讯不支持），前端 `inferCode` index 纯字母代码不加 sh 前缀。**已封版** |
+| V2.2.0 | 2026-06-28 | **数据源分离**（3 模块 / ~200 行）：① stock.py 切东方财富 push2 JSON — 5534只/56页 4线程并发~6s（脱离腾讯，不再跟 hk/us 共抢 qt.gtimg.cn）② etf.py 切东方财富 push2 JSON — 1663只/17页 4线程并发~2s ③ index_mod.py 国内指数切东方财富 push2 JSON + 全球保持 AkShare ④ predict daemon 只预测 stock+etf（移除 index）⑤ main.py stock shard 11→8。**已封版** |
+| V2.1.0 | 2026-06-28 | **美股秒级 + 分类筛选**（4 文件 / ~55 行）：① `us.py` 切腾讯 qt.gtimg.cn 为主源（白名单 164 只全干净代码，串行 3 批/< 3s）② 加分类字段 + `_US_CATEGORY` 字典（中概股/全球龙头/中概ETF/港股ADR）③ `main.py` US roller 从 11/600s→3/5s ④ 前端加分类下拉筛选器（`core.js` render 分支 + `index.html` select + `main.css` 样式 + `us.js` categoryFilter 配置）。**已封版** |
 
 ### V1.7.0 Step 4.5 UA 测试修复（2026-06-26~27，9 commits，8/8 全过）
 

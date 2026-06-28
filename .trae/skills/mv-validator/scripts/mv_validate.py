@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 """
 MarketView 验收脚本
-跑模块数据量 + SSE 心跳 + K线接口 + 铁律自检 + 核心文件 diff
+跑模块数据量 + SSE 心跳 + K线接口 + 铁律自检 + 核心文件 diff + 预测端点
 0 token 消耗：调脚本即可，无需 AI 介入
 V1.6.0.15: Windows GBK 终端兼容（sys.stdout.reconfigure utf-8）
 
 用法：
   python mv_validate.py all      # 全部检查
-  python mv_validate.py modules  # 7 模块数据量
-  python mv_validate.py sse      # 7 模块 SSE 心跳
+  python mv_validate.py modules  # 8 模块数据量
+  python mv_validate.py sse      # 8 模块 SSE 心跳
   python mv_validate.py kline    # V1.7.0+ K线接口
   python mv_validate.py news     # V1.8.0+ 新闻接口
+  python mv_validate.py predict  # V2.0.0+ 智能预测端点
   python mv_validate.py rules    # 铁律自检
   python mv_validate.py diff     # 核心文件 diff
 """
@@ -197,6 +198,66 @@ def check_news():
         print(f'  ⚠️  新闻 SSE  无 data 消息（60s 间隔可能还没到）')
 
 
+def check_predict():
+    hr('3.7. 智能预测端点检查（V2.0.0+）')
+    # 1. analyze
+    data = fetch_json(f'{BASE_URL}/api/predict/analyze/stock/sh600519?period=1d&count=200', timeout=30)
+    if '_error' in data:
+        print(f'  ❌ predict/analyze 连接失败: {data["_error"]}')
+        return
+    cl = data.get('chanlun', {})
+    has_bi = cl.get('has_bi', False)
+    buy_pts = cl.get('buy_points', [])
+    sell_pts = cl.get('sell_points', [])
+    zs_list = cl.get('zhongshu_list', [])
+    score = data.get('score', {})
+    qf = data.get('quant_factors', {})
+    total_score = score.get('total_score', 0)
+    quant_score = qf.get('quant_score', 0)
+    # 缠论
+    if has_bi:
+        print(f'  ✅ chanlun.has_bi=true  buy={len(buy_pts)} sell={len(sell_pts)} 中枢={len(zs_list)}')
+    else:
+        print(f'  ⚠️  chanlun.has_bi=false  (K线数据不足或无笔)')
+    # 10因子
+    q_keys = [f'q{i}' for i in range(1, 11)]
+    q_ok = all(qf.get(k) is not None for k in q_keys)
+    if q_ok and quant_score > 0:
+        print(f'  ✅ 10因子完整  quant_score={quant_score}')
+    else:
+        print(f'  ⚠️  10因子不完整  keys present: {sum(1 for k in q_keys if k in qf)}/10')
+    # 评分
+    if total_score > 0:
+        print(f'  ✅ 综合评分={total_score:.0f}/100')
+    else:
+        print(f'  ⚠️  综合评分=0')
+    # 回测
+    bt = data.get('backtest', {})
+    all_stats = bt.get('stats', {}).get('all', {})
+    if all_stats:
+        n = all_stats.get('sample_count', 0)
+        wr = all_stats.get('win_rate', 0)
+        print(f'  ✅ 回测 {n}笔 胜率{wr}%')
+    else:
+        print(f'  ⚠️  回测 stats 为空')
+    # 2. fundamental
+    fund = fetch_json(f'{BASE_URL}/api/fundamental/stock/sh600519', timeout=10)
+    if '_error' not in fund:
+        avail = fund.get('available', False)
+        if avail:
+            print(f'  ✅ 基本面 available=true  PE={fund.get("pe",0):.1f}')
+        else:
+            print(f'  ⚠️  基本面 available=false')
+    else:
+        print(f'  ⚠️  fundamental 端点失败')
+    # 3. 非A股基本面
+    fund_hk = fetch_json(f'{BASE_URL}/api/fundamental/hk/hk00700', timeout=5)
+    if '_error' not in fund_hk and fund_hk.get('available') == False:
+        print(f'  ✅ 非A股基本面 available=false（预期）')
+    elif '_error' not in fund_hk:
+        print(f'  ⚠️  非A股基本面 available={fund_hk.get("available")}（应为false）')
+
+
 def check_rules():
     hr('4. 铁律自检')
 
@@ -282,12 +343,13 @@ def main():
         'sse': [check_sse],
         'kline': [check_kline],
         'news': [check_news],
+        'predict': [check_predict],
         'rules': [check_rules],
         'diff': [check_rules],
-        'all': [check_modules, check_sse, check_kline, check_news, check_rules],
+        'all': [check_modules, check_sse, check_kline, check_news, check_predict, check_rules],
     }
     if arg not in actions:
-        print(f'用法: {sys.argv[0]} [all|modules|sse|kline|news|rules|diff]')
+        print(f'用法: {sys.argv[0]} [all|modules|sse|kline|news|predict|rules|diff]')
         sys.exit(1)
     for fn in actions[arg]:
         try:

@@ -1,93 +1,75 @@
-"""模块三：ETF — 腾讯优先(线程池并发)，东财/同花顺备选"""
-import json, httpx, akshare as ak
+"""模块三：ETF — 东方财富 push2 JSON API（V2.2.0 不再共用腾讯，独立压力）
+V2.2.0: 切东方财富 push2 JSON（4线程并发），脱离腾讯（留给 hk/us）
+"""
+import json, httpx
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .utils import _safe_float, _to_json, _to_records
+from .utils import _safe_float
 
-_source = None
+_EM_URL = 'https://push2.eastmoney.com/api/qt/clist/get'
+_EM_FS = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024,b:MK0025,b:MK0026,b:MK0027,b:MK0028,b:MK0029,b:MK0030,b:MK0031,b:MK0032,b:MK0033,b:MK0034,b:MK0035,b:MK0036,b:MK0037,b:MK0038,b:MK0039,b:MK0040,b:MK0041,b:MK0042,b:MK0043,b:MK0044,b:MK0045,b:MK0046,b:MK0047,b:MK0048,b:MK0049,b:MK0050'
+_EM_FIELDS = 'f2,f3,f4,f5,f6,f7,f12,f14,f15,f16,f17,f18'
+_PZ = 100
 
-# ETF 代码缓存
-_etf_codes_cache = None
+_ETF_FIELD_MAP = {
+    'f2': '最新价', 'f3': '涨跌幅', 'f4': '涨跌额', 'f5': '成交量',
+    'f6': '成交额', 'f7': '振幅', 'f12': '代码', 'f14': '名称',
+    'f15': '最高价', 'f16': '最低价', 'f17': '今开', 'f18': '昨收',
+}
 
-def _load_etf_codes():
-    global _etf_codes_cache
-    if _etf_codes_cache:
-        return _etf_codes_cache
-    df = ak.fund_etf_spot_em()
-    _etf_codes_cache = [str(r['代码']) for _, r in df.iterrows()]
-    return _etf_codes_cache
 
-def _parse_tencent_etf(line):
-    if '="' not in line: return None
-    _, data = line.split('="', 1)
-    fields = data.rstrip('";\n').split('~')
-    if len(fields) < 35: return None
-    return {
-        '代码': fields[2], '名称': fields[1],
-        '最新价': _safe_float(fields[3]), '昨收': _safe_float(fields[4]),
-        '今开': _safe_float(fields[5]), '成交量': _safe_float(fields[6]),
-        '涨跌额': _safe_float(fields[31]) if len(fields)>31 else 0,
-        '涨跌幅': _safe_float(fields[32]) if len(fields)>32 else 0,
-        '最高': _safe_float(fields[33]) if len(fields)>33 else 0,
-        '最低': _safe_float(fields[34]) if len(fields)>34 else 0,
-        '成交额': _safe_float(fields[37]) if len(fields)>37 else 0,
+def _eastmoney_page(pn, pz=_PZ):
+    params = {
+        'pn': pn, 'pz': pz, 'po': 1, 'np': 1, 'fltt': 2, 'invt': 2,
+        'fid': 'f3', 'fs': _EM_FS, 'fields': _EM_FIELDS,
     }
+    resp = httpx.get(_EM_URL, params=params, timeout=15)
+    data = resp.json()
+    total = data.get('data', {}).get('total', 1626)
+    diffs = data.get('data', {}).get('diff', []) or []
+    rows = []
+    for d in diffs:
+        row = {}
+        for fk, name in _ETF_FIELD_MAP.items():
+            val = d.get(fk)
+            if val == '-' or val is None:
+                val = 0
+            row[name] = _safe_float(val) if name not in ('代码', '名称') else val
+        rows.append(row)
+    return rows, total
 
-def _from_tencent_etf(codes, workers=6):
-    """腾讯 ETF 批量查询，6 线程并发"""
-    batches = [codes[i:i+50] for i in range(0, len(codes), 50)]
-    result = []
-    def fetch_batch(batch):
-        try:
-            url = 'https://qt.gtimg.cn/q=' + ','.join(str(c) for c in batch)
-            resp = httpx.get(url, timeout=30)
-            return [r for r in (_parse_tencent_etf(l) for l in resp.text.split('\n')) if r]
-        except Exception:
-            return []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = [ex.submit(fetch_batch, b) for b in batches]
-        for f in as_completed(futures): result.extend(f.result())
-    return result
+
+def _from_eastmoney_full():
+    """全量拉取（~17 页 pz=100，4 线程并发 ~2s）"""
+    _, total = _eastmoney_page(1, 1)
+    total_pages = (total + _PZ - 1) // _PZ
+
+    def _fetch_page(pn):
+        return _eastmoney_page(pn)[0]
+
+    all_rows = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(_fetch_page, pn): pn for pn in range(1, total_pages + 1)}
+        for f in as_completed(futures):
+            all_rows.extend(f.result())
+    return all_rows
+
 
 def fetch_shard(shard_idx, total_shards):
-    """ETF 分片：total_shards=5，优先腾讯并行"""
-    codes = _load_etf_codes()
-    chunk = max(1, len(codes) // total_shards)
-    my = codes[shard_idx*chunk:(shard_idx+1)*chunk] if shard_idx < total_shards-1 else codes[shard_idx*chunk:]
-    rows = _from_tencent_etf(my, workers=min(3, len(my)//50+1))
-    if rows: return rows
-    # 回退 AkShare
-    df = ak.fund_etf_spot_em()
-    recs = _to_records(df)
-    chunk2 = max(1, len(recs) // total_shards)
-    start = shard_idx * chunk2
-    end = start + chunk2 if shard_idx < total_shards - 1 else len(recs)
-    return recs[start:end]
+    _, total = _eastmoney_page(1, 1)
+    pp_shard = max(1, (total // total_shards + 1) // _PZ + 1)
+    rows = []
+    for i in range(pp_shard):
+        pn = shard_idx * pp_shard + i + 1
+        page_rows, _ = _eastmoney_page(pn)
+        rows.extend(page_rows)
+    return rows
+
 
 def get_json():
-    global _source
-    # 优先用腾讯并行
+    """ETF实时行情 — 东方财富 push2 JSON（V2.2.0）"""
     try:
-        codes = _load_etf_codes()
-        rows = _from_tencent_etf(codes)
-        if rows: return json.dumps(rows, ensure_ascii=False)
+        rows = _from_eastmoney_full()
+        return json.dumps(rows, ensure_ascii=False) if rows else '[]'
     except Exception as e:
-        print(f'[etf] tencent err: {e}')
-    # 回退 AkShare
-    if _source == 'em':
-        try: return _to_json(ak.fund_etf_spot_em())
-        except Exception as e:
-            print(f'[etf] em err: {e}')
-            _source = None
-    if _source == 'ths':
-        try: return _to_json(ak.fund_etf_spot_ths())
-        except Exception as e:
-            print(f'[etf] ths err: {e}')
-            _source = None
-    for name, fn in [('em', ak.fund_etf_spot_em), ('ths', ak.fund_etf_spot_ths)]:
-        try:
-            df = fn(); _source = name
-            return _to_json(df)
-        except Exception as e:
-            print(f'[etf] {name} err: {e}')
-            continue
-    return '[]'
+        print(f'[etf] eastmoney err: {e}', flush=True)
+        return '[]'

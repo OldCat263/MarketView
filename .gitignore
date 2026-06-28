@@ -39,3 +39,4 @@ deploy*.py
 .claude/skills/
 frontend/snapshot.json
 deploy*.py
+backend/.cache/

@@ -58,6 +58,11 @@ window.MV = (function() {
     let r = rows;
     let q = document.getElementById('search').value.trim().toLowerCase();
     if (q) r = r.filter(row => cols.some(k => String(row[k] || '').toLowerCase().includes(q)));
+    // V2.1.0: 分类筛选
+    let cat = ST[tab] && ST[tab].category;
+    if (cat && cat !== '全部') {
+      r = r.filter(row => String(row['分类'] || '') === cat);
+    }
     if (sortKey && cols.includes(sortKey))
       r = [...r].sort((a, b) => { let va = parseFloat(a[sortKey]) || 0, vb = parseFloat(b[sortKey]) || 0; return (va - vb) * sortDir; });
     let total = r.length, tp = Math.ceil(total / pageSize) || 1;
@@ -68,21 +73,35 @@ window.MV = (function() {
     document.getElementById('pager').style.display = total > pageSize ? 'flex' : 'none';
     if (!total) { document.getElementById('thead').innerHTML = ''; document.getElementById('tbody').innerHTML = ''; document.getElementById('empty').style.display = 'block'; return; }
     document.getElementById('empty').style.display = 'none';
-    document.getElementById('thead').innerHTML = '<tr>' + cols.map(k => '<th onclick="MV.sort(\'' + k + '\')">' + k + (sortKey === k ? (sortDir > 0 ? ' ↑' : ' ↓') : '') + '</th>').join('') + '</tr>';
+    document.getElementById('thead').innerHTML = '<tr><th style="width:36px">⭐</th>' + cols.map(k => '<th onclick="MV.sort(\'' + k + '\')">' + k + (sortKey === k ? (sortDir > 0 ? ' ↑' : ' ↓') : '') + '</th>').join('') + '</tr>';
     cfg = registry[tab];
     let fmt = cfg ? (cfg.format || formatChinese) : formatChinese;
     let indent = cfg ? cfg.tabIndent : false;
-    document.getElementById('tbody').innerHTML = pr.map(row =>
-      '<tr>' + cols.map((k, i) => {
-        let v = row[k]; if (v == null) v = '-';
-        let c = ''; if (typeof v === 'number' && (k.includes('涨跌幅') || k.includes('change'))) c = v > 0 ? 'up' : v < 0 ? 'down' : '';
-        let prefix = (i > 0 && indent) ? '\t\t' : '';
-        return '<td class="' + c + '" data-code="' + (row['代码'] || row['交易对'] || '') + '" data-field="' + k + '">' + prefix + fmt(v, k) + '</td>';
-      }).join('') + '</tr>'
-    ).join('');
+    document.getElementById('tbody').innerHTML = pr.map(row => {
+      let code = row['代码'] || row['交易对'] || '';
+      let starClass = MV.watchlist && MV.watchlist[tab] && MV.watchlist[tab].includes(code) ? 'star-on' : 'star-off';
+      return '<tr>' +
+        '<td style="text-align:center;cursor:pointer;font-size:16px" class="star-cell" data-code="' + code + '" data-module="' + tab + '">' +
+        (starClass === 'star-on' ? '⭐' : '☆') + '</td>' +
+        cols.map((k, i) => {
+          let v = row[k]; if (v == null) v = '-';
+          let c = ''; if (typeof v === 'number' && (k.includes('涨跌幅') || k.includes('change'))) c = v > 0 ? 'up' : v < 0 ? 'down' : '';
+          let prefix = (i > 0 && indent) ? '\t\t' : '';
+          return '<td class="' + c + '" data-code="' + (row['代码'] || row['交易对'] || '') + '" data-field="' + k + '">' + prefix + fmt(v, k) + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
   }
 
-  function doSort(k) { sortKey === k ? sortDir *= -1 : (sortKey = k, sortDir = -1); page = 1; ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value }; render(); }
+  function doSort(k) { sortKey === k ? sortDir *= -1 : (sortKey = k, sortDir = -1); page = 1; ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value, category: ST[tab]?.category || '全部' }; render(); }
+
+  // V2.1.0: 分类筛选
+  function doCategoryFilter() {
+    let sel = document.getElementById('categoryFilter');
+    let cat = sel ? sel.value : '全部';
+    page = 1;
+    ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value, category: cat };
+    render();
+  }
 
   // ─── 加载模块数据 ───
   async function loadModule(m) {
@@ -97,7 +116,7 @@ window.MV = (function() {
     let sc = cfg.sortCol;
     nr.sort((a, b) => (parseFloat(b[sc]) || 0) - (parseFloat(a[sc]) || 0));
     cacheSet(m, { rows: nr, cols: def, time: nt });
-    ST[m] = { rows: nr, cols: def, page: 1, sortKey: null, sortDir: 1, updateTime: nt, search: '', fetchTime: Date.now() };
+    ST[m] = { rows: nr, cols: def, page: 1, sortKey: null, sortDir: 1, updateTime: nt, search: '', category: '全部', fetchTime: Date.now() };
     LOADED[m] = true;
     let card = document.getElementById('card_' + m);
     if (card) { card.querySelector('.card-status .status').textContent = '✅'; card.querySelector('.card-count').textContent = nr.length + ' 条'; }
@@ -108,9 +127,9 @@ window.MV = (function() {
   function openModule(m) {
     if (m === 'crypto' && !cryptoOK) { startCrypto(); return; }
     if (!LOADED[m]) { startModule(m); return; }
-    if (tab) ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value };
+    if (tab) ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value, category: ST[tab]?.category || '全部' };
     _connectSSE(m);  // 开启SSE实时推送
-    let s = ST[m] || { page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '' };
+    let s = ST[m] || { page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '', category: '全部' };
     rows = s.rows || []; cols = s.cols || []; page = s.page || 1;
     sortKey = s.sortKey; sortDir = s.sortDir; updateTime = s.updateTime || '';
     tab = m; document.getElementById('search').value = s.search || '';
@@ -129,6 +148,17 @@ window.MV = (function() {
     document.getElementById('newsPanel').style.display = isNews ? 'block' : 'none';
     var isPredict = registry[m] && registry[m].renderMode === 'predict';
     document.getElementById('predictPanel').style.display = isPredict ? 'block' : 'none';
+    // V2.1.0: 分类筛选下拉
+    let catSel = document.getElementById('categoryFilter');
+    let catCfg = registry[m] && registry[m].categoryFilter;
+    if (catCfg && catCfg.length > 1) {
+      catSel.innerHTML = catCfg.map(function(c) {
+        return '<option' + ((s.category || '全部') === c ? ' selected' : '') + '>' + c + '</option>';
+      }).join('');
+      catSel.style.display = '';
+    } else {
+      catSel.style.display = 'none';
+    }
     render();
   }
 
@@ -392,7 +422,7 @@ window.MV = (function() {
     let tp = Math.ceil(rows.length / pageSize) || 1;
     if (a === 'first') page = 1; else if (a === 'prev') page = Math.max(1, page - 1);
     else if (a === 'next') page = Math.min(tp, page + 1); else if (a === 'last') page = tp;
-    ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value };
+    ST[tab] = { rows, cols, page, sortKey, sortDir, updateTime, fetchTime: ST[tab]?.fetchTime || Date.now(), search: document.getElementById('search').value, category: ST[tab]?.category || '全部' };
     render();
   }
   function doFilter() {
@@ -412,15 +442,50 @@ window.MV = (function() {
     register, MODULES, registry, API,
     formatChinese, cacheGet, cacheSet,
     loadModule, openModule, startModule, startCrypto, closePanel,
-    preloadAll, goPage, doFilter, sort: doSort, showToast,
+    preloadAll, goPage, doFilter, doCategoryFilter, sort: doSort, showToast,
     getTab: () => tab,
     getModuleRows: (m) => (ST[m] && ST[m].rows) ? ST[m].rows : [],
+    watchlist: {},
+    toggleWatchlist: async function(module, code) {
+      let key = 'mv_wl_' + module;
+      let wl = this.watchlist[module] || [];
+      if (wl.includes(code)) {
+        await fetch(API + '/api/watchlist/' + module + '/' + code, { method: 'DELETE' });
+        this.watchlist[module] = wl.filter(function(c) { return c !== code; });
+        this.showToast(code + ' 已移出自选');
+      } else {
+        await fetch(API + '/api/watchlist/' + module + '/' + code, { method: 'POST' });
+        if (!this.watchlist[module]) this.watchlist[module] = [];
+        this.watchlist[module].push(code);
+        this.showToast(code + ' 已加入自选');
+      }
+      this.render();
+    },
+    loadWatchlist: async function() {
+      try {
+        let resp = await fetch(API + '/api/watchlist');
+        this.watchlist = await resp.json();
+      } catch(e) { this.watchlist = { stock:[], etf:[], index:[] }; }
+    },
   };
 })();
 
 // 页面启动
 document.addEventListener('DOMContentLoaded', () => {
+  MV.loadWatchlist();
   MV.preloadAll();
+
+  // ⭐ 单击加入/移出自选
+  var tbody = document.getElementById('tbody');
+  if (tbody) {
+    tbody.addEventListener('click', function(e) {
+      var star = e.target.closest('.star-cell');
+      if (!star) return;
+      var code = star.getAttribute('data-code');
+      var module = star.getAttribute('data-module');
+      if (code && module) MV.toggleWatchlist(module, code);
+    });
+  }
 
   // 表格双击 → 打开 K线
   var tbody = document.getElementById('tbody');

@@ -87,6 +87,8 @@ window.MV.Kline = (function() {
     if (module === 'hk') return spotCode.indexOf('hk') === 0 ? spotCode : 'hk' + spotCode;
     if (module === 'us') return spotCode.indexOf('us') === 0 ? spotCode : 'us' + spotCode;
     if (module === 'crypto') return spotCode.indexOf('USDT') >= 0 ? spotCode : spotCode + 'USDT';
+    // BUG11 fix: index 纯字母/^开头(dji/^IXIC/^GSPC)不加前缀，腾讯认 raw
+    if (module === 'index' && /^[a-zA-Z^]/.test(spotCode)) return spotCode;
     // stock/etf/index: 已有 sh/sz 前缀 → 直接返回；否则首字符 0/2/3 → sz，其余 → sh
     if (spotCode.indexOf('sh') === 0 || spotCode.indexOf('sz') === 0) return spotCode;
     var first = spotCode.charAt(0);

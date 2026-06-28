@@ -1,12 +1,13 @@
 """
-MarketView — FastAPI 入口 V1.6.0
-数据全部实时获取，零磁盘存储
-分片内存缓存 + 滚动daemon刷新 + SSE推送
+MarketView — FastAPI 入口 V2.0.2
+数据全部来自免费公开 API（腾讯/Binance/新浪）
+内存/磁盘缓存仅用于性能优化，非主数据源
+分片内存缓存 + 滚动daemon刷新 + SSE推送 + 磁盘持久化缓存（V2.0.2）
 """
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-import json, threading, time, queue
+import json, threading, time, queue, os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -20,14 +21,15 @@ from fetcher import chanlun, backtest, scorer, fundamentals, ai_analyzer
 
 # ── 分片配置 ──
 SHARD_CFG = {
-    'crypto':  {'n': 1,  'interval': 5},
-    'stock':   {'n': 11, 'interval': 1},
-    'etf':     {'n': 5,  'interval': 3},
-    'hk':      {'n': 6,  'interval': 2.5},
-    'us':      {'n': 11, 'interval': 1},
-    'index':   {'n': 1,  'interval': 3},
-    'news':    {'n': 1,  'interval': 60},
-    'predict': {'n': 1,  'interval': 300},  # V1.9.0 预测模块，5min
+    # V2.0.3 分时错峰：start_delay 秒后再启动 roller，避免冷启动全挤
+    'crypto':  {'n': 1,  'interval': 5,   'start_delay': 0},
+    'stock':   {'n': 8,  'interval': 5,   'start_delay': 0},    # V2.2.0 东财 push2 8 片/5s
+    'etf':     {'n': 5,  'interval': 5,   'start_delay': 5},    # 5s 后启动
+    'hk':      {'n': 6,  'interval': 5,   'start_delay': 10},   # 10s 后
+    'us':      {'n': 3,  'interval': 5,   'start_delay': 15},   # V2.1.0: 腾讯 3 片/5s（150只/50=3批）
+    'index':   {'n': 1,  'interval': 5,   'start_delay': 20},
+    'news':    {'n': 1,  'interval': 60,  'start_delay': 0},
+    'predict': {'n': 1,  'interval': 300, 'start_delay': 45},  # 5min，等前面跑完
 }
 SHARD_FN = {
     'stock': fetch_stock_shard, 'etf': fetch_etf_shard,
@@ -36,13 +38,197 @@ SHARD_FN = {
     'news': fetch_news_shard,
 }
 
-# ── 分片缓存（纯RAM，不落盘）──
+# ── 分片缓存（V2.0.2: 启动时从磁盘恢复）──
 _cache = {}        # key → {'shards': {i:{'data':[],'ts':0}}, 'cols':[]}
 _cache_lock = threading.Lock()
 _sse_queues = {m: [] for m in SHARD_CFG}  # list of per-client queues
 _sse_lock = threading.Lock()
-_kline_cache = {}
-_kline_lock = threading.Lock()
+# V2.0.2: 磁盘持久化缓存路径
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache')
+_SPOT_CACHE_FILE = os.path.join(_CACHE_DIR, 'spot_cache.json')
+_WATCHLIST_FILE = os.path.join(_CACHE_DIR, 'watchlist.json')  # V2.0.3 自选列表
+# V2.0.1: 共享 K 线缓存（从 utils.py 绝对导入，与 scorer 共用）
+# V2.0.2: 改用 set_kline_cache / get_kline_cache（含磁盘持久化 + LRU）
+# 注意：用绝对导入（非 .fetcher），因为 uvicorn 把 main 当 __main__ 运行
+from fetcher.utils import get_kline_cache, set_kline_cache
+
+# V2.0.1-hotfix: spot 代码转 K线前缀（腾讯 API 需 sh/sz/hk/us 前缀）
+_CODE_PREFIX = {
+    'stock': lambda c: _stock_prefix(c),
+    'etf':   lambda c: _stock_prefix(c),
+    'hk':    lambda c: 'hk' + c if not c.startswith('hk') else c,
+    'us':    lambda c: 'us' + c if not c.startswith('us') else c,
+    'index': lambda c: 'sh' + c if c.isdigit() else c,
+}
+
+
+def _load_cache():
+    """V2.0.2: 从磁盘加载 spot 缓存 + predict 缓存（启动时调用一次）"""
+    try:
+        if os.path.exists(_SPOT_CACHE_FILE):
+            with open(_SPOT_CACHE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # 恢复 spot 缓存（JSON keys 变字符串，转换回 int）
+            for key in ('stock', 'etf', 'hk', 'us', 'index', 'news'):
+                if key in data:
+                    mod = data[key]
+                    # 修复 JSON 序列化后 shard key 从 int → str
+                    if 'shards' in mod:
+                        mod['shards'] = {int(k): v for k, v in mod['shards'].items()}
+                    _cache[key] = mod
+            # 恢复 predict 缓存
+            if 'predict' in data:
+                for pk, pv in data['predict'].items():
+                    _predict_cache[pk] = pv
+                # 恢复 predict_status（显示 done 而非 not started）
+                for pk in data['predict']:
+                    _predict_status[pk] = {'progress': 0, 'total': 0, 'status': 'done'}
+            print(f'[cache] loaded {len(data)} modules from disk ({_SPOT_CACHE_FILE})', flush=True)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f'[cache] load failed (fallback to empty): {e}', flush=True)
+
+def _save_cache():
+    """V2.0.2: 序列化 _cache + _predict_cache 到磁盘（原子写入）"""
+    try:
+        data = {}
+        with _cache_lock:  # shallow copy 后释放锁
+            for key in ('stock', 'etf', 'hk', 'us', 'index', 'news'):
+                if key in _cache:
+                    data[key] = _cache[key]
+        with _predict_lock:  # shallow copy predict
+            predict_data = dict(_predict_cache)
+        data['predict'] = predict_data
+        data['ts'] = time.time()
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        tmp = _SPOT_CACHE_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, _SPOT_CACHE_FILE)
+    except Exception as e:
+        print(f'[cache] save error: {e}', flush=True)
+
+def _save_cache_task():
+    """V2.0.2: 每 30s dump 一次磁盘"""
+    while True:
+        time.sleep(30)
+        _save_cache()
+
+def _get_codes_from_cache(module, pool_size=50):
+    """V2.0.2: 从 spot 缓存取代码列表（复用 _do_batch 的逻辑）"""
+    raw = _cached_get(module)
+    if raw == '[]' or raw == '{}':
+        return []
+    spot_data = json.loads(raw)
+    items = spot_data.get('data', spot_data) if isinstance(spot_data, dict) else spot_data
+    codes = []
+    if isinstance(items, list):
+        for r in items[:pool_size]:
+            if not isinstance(r, dict):
+                continue
+            c = r.get('代码', r.get('交易对', ''))
+            if c:
+                pf = _CODE_PREFIX.get(module)
+                codes.append(pf(c) if pf else c)
+    return codes
+
+def _load_watchlist():
+    """V2.0.3: 加载自选列表"""
+    try:
+        if os.path.exists(_WATCHLIST_FILE):
+            with open(_WATCHLIST_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {'stock': [], 'etf': [], 'index': []}
+
+def _save_watchlist(wl):
+    """V2.0.3: 持久化自选列表"""
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        tmp = _WATCHLIST_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(wl, f, ensure_ascii=False)
+        os.replace(tmp, _WATCHLIST_FILE)
+    except Exception as e:
+        print(f'[watchlist] save err: {e}', flush=True)
+
+# 全局自选列表
+_watchlist = {}
+
+# V2.0.3: daemon 启动信号（stock+etf preload 完成后触发）
+_predict_ready = threading.Event()
+
+def _predict_daemon():
+    """V2.0.2+BUG10: 独立线程，等 stock+etf 就绪即启动，5min 重算。
+    优先用自选列表，无自选则取缓存前 20 只。从内存缓存读代码列表（roller 已拉完 spot），不重复调 akshare。"""
+    global _watchlist
+    _watchlist = _load_watchlist()
+    print('[predict_daemon] waiting for stock+etf preload...', flush=True)
+    _predict_ready.wait()  # 等 _initial_load 调用 _predict_ready.set()
+    print('[predict_daemon] stock+etf ready, starting', flush=True)
+    while True:
+        for m in ('stock', 'etf'):
+            try:
+                # V2.2.0: 只预测 stock+etf（不再预测 index）
+                # 从 roller 已写好的内存缓存读代码（不调 fetcher，0 akshare 竞争）
+                spot = _cached_get(m)
+                data = json.loads(spot) if isinstance(spot, str) else spot
+                codes = []
+                if isinstance(data, list):
+                    # 直接列表格式（stock/etf 合并后）
+                    codes = [r.get('代码','') for r in data[:50] if isinstance(r, dict) and r.get('代码')]
+                else:
+                    items = data if isinstance(data, list) else data.get('shards', {})
+                    if not isinstance(items, list):
+                        # shards 格式: {'0': {'data': [...]}, '1': {'data': [...]}}
+                        for sdata in items.values():
+                            sd = sdata.get('data', []) if isinstance(sdata, dict) else []
+                            for r in sd:
+                                if isinstance(r, dict):
+                                    c = r.get('代码','') or r.get('交易对','')
+                                    if c:
+                                        pf = _CODE_PREFIX.get(m)
+                                        codes.append(pf(c) if pf else c)
+                            if len(codes) >= 50:
+                                break
+                if not codes:
+                    # V2.0.3: 优先用自选列表
+                    codes_wl = _watchlist.get(m, [])
+                    if codes_wl:
+                        codes = codes_wl[:50]
+                        print(f'[predict_daemon] {m} using watchlist: {len(codes)} codes', flush=True)
+                    else:
+                        print(f'[predict_daemon] {m} no codes in cache, skip', flush=True)
+                        continue
+                cache_key = f'rank_{m}_1d'
+                results = scorer.rank_batch(m, codes, '1d', 'quick', max_workers=5)
+                with _predict_lock:
+                    _predict_cache[cache_key] = {'data': results, 'ts': time.time()}
+                _predict_status[cache_key] = {'progress': len(results), 'total': len(codes), 'status': 'done'}
+                with _sse_lock:
+                    for q in _sse_queues.get('predict', []):
+                        try:
+                            q.put_nowait({'type': 'rank_update', 'data': results[:50], 'ts': time.time()})
+                        except queue.Full:
+                            pass
+                print(f'[predict_daemon] {m} done: {len(results)} items', flush=True)
+            except Exception as e:
+                import traceback
+                print(f'[predict_daemon] {m} error: {e}', flush=True)
+                traceback.print_exc()
+        _save_cache()
+        time.sleep(300)  # 5min
+
+
+def _stock_prefix(code):
+    """A股代码前缀：bj（北交所92xx）/ sh（5xxx、6xxx）/ sz（其他）"""
+    if not code or not code.isdigit():
+        return code
+    if code[:2] == '92':
+        return 'bj' + code
+    if code[0] in ('5', '6'):
+        return 'sh' + code
+    return 'sz' + code
 
 def _cached_get(key):
     """读缓存：合并分片返回全量；支持 list 和 dict 两种数据结构"""
@@ -73,9 +259,12 @@ def _cached_get(key):
     # 未命中：等滚动线程预热（不阻塞worker）
     return '[]'
 
-def _roller(key, fetch_shard_fn):
+def _roller(key, fetch_shard_fn, start_delay=0):
     """滚动刷新线程：轮转每个分片"""
     cfg = SHARD_CFG[key]
+    if start_delay > 0:
+        print(f'[roller] {key} waiting {start_delay}s before first fetch...')
+        time.sleep(start_delay)
     i = 0
     print(f'[roller] {key} thread started, shards={cfg["n"]}, interval={cfg["interval"]}s')
     while True:
@@ -113,16 +302,23 @@ def _heartbeat(key, interval=3):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print('[lifespan] start')
+    # V2.0.2: 从磁盘恢复缓存（在 rollers 启动前）
+    _load_cache()
+    # V2.0.2: 启动磁盘持久化 daemon（每 30s dump）
+    threading.Thread(target=_save_cache_task, daemon=True).start()
+    # V2.0.2: 启动 predict daemon（延迟 30s，5min 重算）
+    threading.Thread(target=_predict_daemon, daemon=True).start()
     # fire-and-forget：代理检测不阻塞启动（crypto 模块首次请求时也会自检）
     import asyncio as _aio
     _aio.ensure_future(crypto_status())
     print('[lifespan] crypto_status dispatched (non-blocking)')
-    # 启动滚动刷新线程（每模块一个）
+    # 启动滚动刷新线程（每模块一个，分时错峰）
     for m in SHARD_CFG:
         if m in SHARD_FN:
-            print(f'[lifespan] starting roller: {m}')
+            delay = SHARD_CFG[m].get('start_delay', 0)
+            print(f'[lifespan] starting roller: {m} (delay={delay}s)')
             try:
-                threading.Thread(target=_roller, args=(m, SHARD_FN[m]), daemon=True).start()
+                threading.Thread(target=_roller, args=(m, SHARD_FN[m], delay), daemon=True).start()
                 print(f'[lifespan] roller {m} started OK')
             except Exception as e:
                 print(f'[lifespan] roller {m} FAIL: {e}')
@@ -135,9 +331,11 @@ async def lifespan(app: FastAPI):
             print(f'[lifespan] heartbeat {m} FAIL: {e}')
     # 启动首轮全量预加载（加速首次访问）— 并行拉取，写分片 schema 与 _cached_get 一致
     def _initial_load():
-        import concurrent.futures
         def _load_one(key, fn):
             try:
+                # V2.0.1-hotfix: crypto 是 async，跳过预加载（roller 5s 内覆盖）
+                if key == 'crypto':
+                    return
                 raw = fn()
                 data = json.loads(raw) if isinstance(raw, str) else raw
                 n = SHARD_CFG[key]['n']
@@ -161,16 +359,21 @@ async def lifespan(app: FastAPI):
                 print(f'[Preload] {key}: {e}')
 
         modules = [
-            ('news', get_news_json),
-            ('index', get_index_json),
-            ('etf', get_etf_json),       # 小模块优先
-            ('hk', get_hk_json),
             ('stock', get_stock_json),
-            ('us', get_us_json),         # 大模块最后
+            ('etf', get_etf_json),
+            # ↑ predict daemon 等 etf 加载完成即触发，不等待后续模块
+            ('hk', get_hk_json),
+            ('news', get_news_json),
+            ('us', get_us_json),
+            ('index', get_index_json),
         ]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-            futures = {ex.submit(_load_one, key, fn): key for key, fn in modules}
-            concurrent.futures.wait(futures)
+        # V2.0.3 分时错峰：串行预加载，stock→etf→predict触发→后续模块
+        for key, fn in modules:
+            _load_one(key, fn)
+            # etf 加载完成后通知 daemon 可以开始打分
+            if key == 'etf':
+                _predict_ready.set()
+                print('[Preload] stock+etf done, predict daemon notified', flush=True)
 
         # V1.8.6: 并行预加载完成后写首屏快照（wait 之后确保 6 模块全部就绪）
         def _write_snapshot():
@@ -186,6 +389,7 @@ async def lifespan(app: FastAPI):
                 json.dump(snapshot, f, ensure_ascii=False)
             print('[snapshot] updated')
         _write_snapshot()
+
     threading.Thread(target=_initial_load, daemon=True).start()
     yield
 
@@ -252,12 +456,16 @@ KL_NAMES = {
 
 @app.get('/api/kline/{module}/{code}')
 def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750):
-    cache_key = f'{module}_{code}_{period}_{count}'
+    cache_key = f'{module}_{code}_{period}'  # V2.0.2: 不含 count，不同 count 请求共享缓存
     # 读缓存（5min TTL）
-    with _kline_lock:
-        cached = _kline_cache.get(cache_key)
-        if cached and time.time() - cached['ts'] < 300:
-            return JSONResponse(cached['data'])
+    cached = get_kline_cache(cache_key)
+    if cached and time.time() - cached['ts'] < 300:
+        # 缓存中有数据，取所需数量返回（count 可能不同）
+        resp = cached['data']
+        if 'data' in resp and len(resp['data']) > count:
+            resp = dict(resp)
+            resp['data'] = resp['data'][-count:]
+        return JSONResponse(resp)
     # 未命中 → 正常计算
     fn = KL_FN.get(module)
     if not fn:
@@ -280,9 +488,8 @@ def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750)
             'code': code, 'name': name, 'module': module, 'period': period,
             'data': rows, 'ma': ma, 'boll': boll, 'macd': macd, 'ts': time.time(),
         }
-        # 写缓存
-        with _kline_lock:
-            _kline_cache[cache_key] = {'data': resp_data, 'ts': time.time()}
+        # 写缓存（V2.0.2: 内存+磁盘，含 LRU）
+        set_kline_cache(cache_key, {'data': resp_data, 'ts': time.time()})
         return JSONResponse(resp_data)
     except Exception as e:
         return JSONResponse({'error': str(e)}, status_code=500)
@@ -329,7 +536,7 @@ _predict_status = {}
 
 
 @app.get('/api/predict/analyze/{module}/{code}')
-def predict_analyze(module: str, code: str, period: str = '1d', count: int = 200, with_ai: bool = False):
+def predict_analyze(module: str, code: str, period: str = '1d', count: int = 100, with_ai: bool = False):
     """完整流水线单票分析。GET /api/predict/analyze/stock/sh600519?with_ai=true"""
     fn = KL_FN.get(module)
     if not fn:
@@ -365,13 +572,40 @@ def predict_rank(module: str, period: str = '1d', limit: int = 50):
         return JSONResponse({'data': data, 'cached_at': cached['ts'], 'ts': time.time()})
     return JSONResponse({'data': [], 'message': 'no cached rank, POST /api/predict/batch first'})
 
+# ── V2.0.3 自选列表 API ──
+
+@app.get('/api/watchlist')
+def get_watchlist():
+    """获取自选列表"""
+    return JSONResponse(_watchlist)
+
+@app.post('/api/watchlist/{module}/{code}')
+def add_watchlist(module: str, code: str):
+    """添加自选 POST /api/watchlist/stock/sh600519"""
+    global _watchlist
+    if module not in _watchlist:
+        _watchlist[module] = []
+    if code not in _watchlist[module]:
+        _watchlist[module].append(code)
+        _save_watchlist(_watchlist)
+    return JSONResponse({'ok': True, 'watchlist': _watchlist})
+
+@app.delete('/api/watchlist/{module}/{code}')
+def del_watchlist(module: str, code: str):
+    """删除自选 DELETE /api/watchlist/stock/sh600519"""
+    global _watchlist
+    if module in _watchlist and code in _watchlist[module]:
+        _watchlist[module].remove(code)
+        _save_watchlist(_watchlist)
+    return JSONResponse({'ok': True, 'watchlist': _watchlist})
+
 
 @app.post('/api/predict/batch/{module}')
-def predict_batch(module: str, period: str = '1d', pool_size: int = 300):
-    """触发批量计算。POST /api/predict/batch/stock?pool_size=300"""
+def predict_batch(module: str, period: str = '1d', pool_size: int = 200):
+    """触发批量计算。POST /api/predict/batch/stock?pool_size=200"""
     import concurrent.futures
     cache_key = f'rank_{module}_{period}'
-    _predict_status[cache_key] = {'progress': 0, 'total': min(pool_size, 300), 'status': 'running'}
+    _predict_status[cache_key] = {'progress': 0, 'total': min(pool_size, 200), 'status': 'running'}
 
     def _do_batch():
         try:
@@ -381,13 +615,20 @@ def predict_batch(module: str, period: str = '1d', pool_size: int = 300):
                 _predict_status[cache_key] = {'progress': 0, 'total': 0, 'status': 'no_data'}
                 return
             spot_data = json.loads(raw)
+            # V2.0.1-hotfix: _cached_get 返回裸 JSON 字符串，json.loads 后为 list（stock/etf/hk/us）或 dict（index）
+            # index 模块返回 {'china': [...], 'global': [...]} → isinstance(list)=False → 跳过
+            items = spot_data.get('data', spot_data) if isinstance(spot_data, dict) else spot_data
             codes = []
-            for r in spot_data[:pool_size]:
-                c = r.get('代码', r.get('交易对', ''))
-                if c:
-                    codes.append(c)
-
-            results = scorer.rank_batch(module, codes, period, 'quick', max_workers=5)
+            if isinstance(items, list):
+                for r in items[:pool_size]:
+                    if not isinstance(r, dict):
+                        continue
+                    c = r.get('代码', r.get('交易对', ''))
+                    if c:
+                        pf = _CODE_PREFIX.get(module)
+                        codes.append(pf(c) if pf else c)
+            print(f'[batch/{module}] codes={len(codes)} items_type={type(items).__name__}', flush=True)
+            results = scorer.rank_batch(module, codes, period, 'quick', max_workers=5) if codes else []
             with _predict_lock:
                 _predict_cache[cache_key] = {'data': results, 'ts': time.time()}
             _predict_status[cache_key] = {'progress': len(results), 'total': len(codes), 'status': 'done'}

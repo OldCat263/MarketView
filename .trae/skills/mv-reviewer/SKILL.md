@@ -37,6 +37,7 @@ description: "MarketView 审批员。复审代码/标 P0P1P2/出改进意见。I
 - 协作流程 10 步（你是第 8 步，设计师交付后介入）
 - 复审时效 24h
 - V1.7.0+ 加 K线专项（数据/ECharts 渲染/指标对账/SSE 推最新K线）
+- V2.0.0+ 加预测专项（§3.7：chanlun/10因子/AI source/回测9指标/百分位/非A股 available:false）
 
 ## 注意
 

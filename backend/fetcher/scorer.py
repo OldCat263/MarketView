@@ -4,9 +4,33 @@
 
 评分维度: 缠论(25%) + 回测(20%) + 量化因子(15%) + 基本面(15%) + 技术指标(10%) + 资金面(10%) + 新闻(5%)
 """
-import json, time, math, random, os
+import json, time, math, random, os, threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .indicators import calc_ma, calc_boll, calc_macd, calc_rsi, calc_atr, calc_vpt
+
+
+# V2.0.2: 共享 K 线缓存读取（走 utils.py 的 set/get，与 main.py 共用 + 磁盘持久化）
+def _fetch_kline_cached(module, code, period='1d', count=100):
+    """走共享 K 线缓存（含磁盘持久化），避免重复拉取。
+    TTL 5min，cache_key 不含 count（不同 count 请求共享，取 max count）。
+    """
+    from .utils import get_kline_cache, set_kline_cache
+    cache_key = f'{module}_{code}_{period}'
+    cached = get_kline_cache(cache_key)
+    if cached and time.time() - cached['ts'] < 300:
+        rows = cached['data'].get('data', [])
+        if rows:
+            return rows[-count:] if len(rows) > count else rows
+        return []
+    # 未命中 → 拉取（用较大 count 以覆盖后续请求）
+    fn = _KL_FN.get(module)
+    if not fn:
+        return []
+    rows = fn(code, period, max(count, 200))  # 至少拉 200 根
+    if rows:
+        set_kline_cache(cache_key, {'data': {'data': rows}, 'ts': time.time()})
+        return rows[-count:] if len(rows) > count else rows
+    return rows
 from .chanlun import analyze as chanlun_analyze
 from .backtest import backtest as run_backtest
 from .fundamentals import get_fundamentals
@@ -255,15 +279,16 @@ def _multi_period_confirm(module, code, daily_signal_type):
 
 def _percentile_rank(scores, key):
     """计算某个 key 在分数列表中的百分位排名（越小越好，即前X%）。"""
-    vals = sorted([s.get(key, 0) for s in scores], reverse=True)
-    if not vals:
-        return 50
-    my_val = scores[-1].get(key, 0) if isinstance(scores[-1], dict) else 0
-
-    # 直接传分数值的情况
-    if isinstance(scores, list) and all(isinstance(s, (int, float)) for s in scores):
+    # 先判断：如果 scores 是纯数字列表，直接排序取百分位
+    if scores and isinstance(scores[0], (int, float)):
         vals = sorted(scores, reverse=True)
         my_val = scores[-1]
+    else:
+        # scores 是字典列表
+        vals = sorted([s.get(key, 0) for s in scores], reverse=True)
+        if not vals:
+            return 50.0
+        my_val = scores[-1].get(key, 0) if isinstance(scores[-1], dict) else 0
 
     better = sum(1 for v in vals if v > my_val)
     return round(better / len(vals) * 100, 1)
@@ -414,7 +439,8 @@ def rank_batch(module, codes, period='1d', mode='quick', max_workers=5):
 
     def _score_one(code):
         try:
-            rows = fn(code, period, 200)
+            count = 100 if mode == 'quick' else 200
+            rows = _fetch_kline_cached(module, code, period, count)
             if not rows or len(rows) < 30:
                 return None
             return score_single(module, code, rows, period, mode)
