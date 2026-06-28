@@ -7,7 +7,7 @@ description: "MarketView 执行者。写代码/跑验收/同步技术文档/回�
 
 > 角色：写代码 + 跑验收 + 同步技术文档 + 回报设计师
 > 工具：Trae 执行者
-> **项目状态**：V2.2.6 封版（P1 集中修复 11 项 + 仓库瘦身）— 9 模块（stock/etf/hk/us/index/crypto/news/predict/kline）+ 磁盘缓存 + 首屏快照 + 错峰启动
+> **项目状态**：V2.2.7 生产错误修复（美股降级+SSE抑制+卡片就绪同步+重试退避+加密说明）— 9 模块（stock/etf/hk/us/index/crypto/news/predict/kline）+ 磁盘缓存 + 首屏快照 + 错峰启动
 
 ## 必读（按需 Read）
 
