@@ -1,5 +1,7 @@
 /**
- * 模块九：智能预测（V2.2.3）
+ * 模块九：智能预测（V2.2.8）
+ * V2.2.8: SSE rank_update 加 module 字段，前端按当前模块过滤
+ *        （修复 ETF 页面收到 stock 数据 + 切换模块时数据串台）
  * 评分排行常驻显示 → 点「查看」在下方展开分析报告
  * 分页：每页 20 条，按总分降序排列
  */
@@ -205,6 +207,8 @@ MV.Predict = {
       try {
         var msg = JSON.parse(e.data);
         if (msg.type === 'rank_update') {
+          // V2.2.8: 按 module 过滤（之前会因为共享队列导致 ETF 页面收到 stock 数据）
+          if (msg.module && msg.module !== predictState.currentModule) return;
           var data = msg.data || [];
           data.sort(function(a, b) {
             var sa = a.score ? a.score.total_score || 0 : 0;

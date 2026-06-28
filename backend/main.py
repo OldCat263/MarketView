@@ -234,7 +234,7 @@ def _predict_daemon():
                 with _sse_lock:
                     for q in _sse_queues.get('predict', []):
                         try:
-                            q.put_nowait({'type': 'rank_update', 'data': results[:50], 'ts': time.time()})
+                            q.put_nowait({'type': 'rank_update', 'module': m, 'data': results[:50], 'ts': time.time()})
                         except queue.Full:
                             pass
             except Exception as e:
@@ -717,11 +717,11 @@ def predict_batch(module: str, period: str = '1d', pool_size: int = 200):
                 _predict_cache[cache_key] = {'data': results, 'ts': time.time()}
             _predict_status[cache_key] = {'progress': len(results), 'total': len(codes), 'status': 'done'}
 
-            # SSE 推送
+            # SSE 推送（带 module 字段，前端按模块过滤）
             with _sse_lock:
                 for q in _sse_queues.get('predict', []):
                     try:
-                        q.put_nowait({'type': 'rank_update', 'data': results[:50], 'ts': time.time()})
+                        q.put_nowait({'type': 'rank_update', 'module': module, 'data': results[:50], 'ts': time.time()})
                     except queue.Full:
                         pass
         except Exception as e:
