@@ -50,6 +50,7 @@ window.MV.Kline = (function() {
   var showMACD = false;      // MACD 默认关
   var showMinute = false;    // 分时图默认关
   var lastResp = null;       // 缓存最近一次响应（MACD 切换时重渲染）
+  var _klineLoadSeq = 0;     // P1-9: 每次 loadData 递增，标记当前 lastResp 批次
   var _yesterdayClose = null; // 昨收价（分时图 markLine）
   var _resizeHandler = null;
   var _klineSSE = null;        // K线 SSE EventSource
@@ -594,9 +595,12 @@ window.MV.Kline = (function() {
     // ── fetch 数据 ──
     var url = MV.API + '/api/kline/' + module + '/' + code +
               '?period=' + currentPeriod + '&count=750';
+    // P1-9: 标记旧 lastResp 失效，防止 fetch 期间 SSE 脏写到孤儿对象
+    lastResp = null;
     try {
       var resp = await fetch(url).then(function(r) { return r.json(); });
       if (resp.error) { console.warn('Kline load error:', resp.error); return; }
+      resp._seq = ++_klineLoadSeq;  // P1-9: 附本批序列号，供 SSE 校验一致性
       lastResp = resp;
       var title2 = displayName || _lookupName(module, code) || resp.name || code;
       document.getElementById('klineTitle').textContent = title2 + ' (' + code + ')';
@@ -709,6 +713,8 @@ window.MV.Kline = (function() {
           var mod = currentModule;
           var url1m = MV.API + '/api/kline/' + mod + '/' + code + '?period=1m&count=240';
           var url1d = MV.API + '/api/kline/' + mod + '/' + code + '?period=1d&count=2';
+          // P1-9: 标记旧 lastResp 失效
+          lastResp = null;
           var results = await Promise.all([
             fetch(url1m).then(function(r) { return r.json(); }),
             fetch(url1d).then(function(r) { return r.json(); }),
@@ -723,6 +729,7 @@ window.MV.Kline = (function() {
             _yesterdayClose = parseFloat(dayRows[0][2]);
           }
           if (minData && minData.data && minData.data.length > 0) {
+            minData._seq = ++_klineLoadSeq;  // P1-9: 附本批序列号
             lastResp = minData;
             document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
             render(minData);
@@ -780,6 +787,9 @@ window.MV.Kline = (function() {
   // toggleMinute 的子步骤：仅加载数据（不翻转 showMinute）
 
   // ─── K线 SSE 连接（V1.7.0 Step 5）───
+  // V2.2.5: 错误计数，超过阈值停止重连 + UI 提示
+  var _klineSSEerrCount = 0;
+  var KLINE_SSE_MAX_ERR = 5;
   function _connectKlineSSE() {
     // 先关闭已有连接（防泄漏）
     if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
@@ -792,25 +802,39 @@ window.MV.Kline = (function() {
     _klineSSE = new EventSource(url);
 
     _klineSSE.onmessage = function(e) {
+      _klineSSEerrCount = 0;  // V2.2.5: 收到消息重置
       try {
         var msg = JSON.parse(e.data);
         if (msg.heartbeat) return;  // 心跳跳过
         if (msg.error) { console.warn('Kline SSE error:', msg.error); return; }
         if (msg.candle && lastResp && lastResp.data) {
+          // P1-9: 一次性捕获本地引用，避免同一回调内 loadData 替换导致渲染对象与写入对象不一致
+          var resp = lastResp;
+          var data = resp.data;
           var candle = msg.candle;
-          var data = lastResp.data;
           // 同日期 → 替换最后一根；新日期 → 追加
           if (data.length > 0 && data[data.length - 1][0] === candle[0]) {
             data[data.length - 1] = candle;
           } else {
             data.push(candle);
           }
-          render(lastResp, true);  // noAnimation=true（避免每 5s 闪）
+          render(resp, true);  // noAnimation=true（避免每 5s 闪）
         }
       } catch(err) {}
     };
 
     _klineSSE.onerror = function() {
+      _klineSSEerrCount++;
+      if (_klineSSEerrCount > KLINE_SSE_MAX_ERR) {
+        // V2.2.5: 超过重试上限，停止重连 + 提示用户
+        if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
+        if (typeof MV !== 'undefined' && MV.showToast) {
+          MV.showToast('K线连接已断开，请刷新页面重试', 'error');
+        } else {
+          console.warn('[Kline SSE] 连接已断开（已重试 ' + KLINE_SSE_MAX_ERR + ' 次）');
+        }
+        return;
+      }
       if (_klineSSE) { _klineSSE.close(); _klineSSE = null; }
       _klineSSERetry = setTimeout(_connectKlineSSE, 5000);  // 5s 自动重连
     };
@@ -824,6 +848,8 @@ window.MV.Kline = (function() {
         var mod = currentModule;
         var url1m = MV.API + '/api/kline/' + mod + '/' + code + '?period=1m&count=240';
         var url1d = MV.API + '/api/kline/' + mod + '/' + code + '?period=1d&count=2';
+        // P1-9: 标记旧 lastResp 失效，防止 fetch 期间 SSE 脏写
+        lastResp = null;
         var results = await Promise.all([
           fetch(url1m).then(function(r) { return r.json(); }),
           fetch(url1d).then(function(r) { return r.json(); }),
@@ -837,6 +863,7 @@ window.MV.Kline = (function() {
           _yesterdayClose = parseFloat(dayRows[0][2]);
         }
         if (minData && minData.data && minData.data.length > 0) {
+          minData._seq = ++_klineLoadSeq;  // P1-9: 附本批序列号
           lastResp = minData;
           document.getElementById('klineTitle').innerHTML = (_lookupName(currentModule, currentCode) || minData.name || code) + ' (' + code + ') 分时 &nbsp;<span style="color:#f59e0b;font-size:13px">昨收 ' + _fmtClose(_yesterdayClose) + '</span>';
           render(minData);

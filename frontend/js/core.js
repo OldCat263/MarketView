@@ -54,7 +54,7 @@ window.MV = (function() {
   function render() {
     // 自定义渲染（如新闻卡片流）
     let cfg = registry[tab];
-    if (cfg && cfg.renderFn) { cfg.renderFn(rows, cols); return; }
+    if (cfg && cfg.renderFn) { document.getElementById('thead').innerHTML = ''; document.getElementById('tbody').innerHTML = ''; document.getElementById('empty').style.display = 'none'; document.getElementById('pager').style.display = 'none'; cfg.renderFn(rows, cols); return; }
     let r = rows;
     let q = document.getElementById('search').value.trim().toLowerCase();
     if (q) r = r.filter(row => cols.some(k => String(row[k] || '').toLowerCase().includes(q)));
@@ -107,9 +107,24 @@ window.MV = (function() {
   async function loadModule(m) {
     let cfg = registry[m];
     if (!cfg || cfg.placeholder) return;
-    let resp = await fetch(API + cfg.endpoint).then(r => r.json());
-    let nr = cfg.parseResponse(resp);
-    let nt = resp.time || '';
+    let nr, nt = '';
+    try {
+      // V2.2.5: 加 fetch 错误处理（404/500/网络断）— 之前会被外层吞
+      const resp = await fetch(API + cfg.endpoint);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      nr = cfg.parseResponse(json);
+      nt = json.time || '';
+    } catch (e) {
+      // V2.2.5: 显式设 fetchTime + 错误态 + 提示
+      console.error(`[loadModule] ${m} 失败:`, e);
+      ST[m] = { rows: [], cols: cfg.columns || [], page: 1, sortKey: null, sortDir: 1, updateTime: '', search: '', category: '全部', fetchTime: Date.now() };
+      LOADED[m] = true;
+      let card = document.getElementById('card_' + m);
+      if (card) { card.querySelector('.card-status .status').textContent = '❌'; card.querySelector('.card-count').textContent = '加载失败'; }
+      if (typeof MV !== 'undefined' && MV.showToast) MV.showToast(`${cfg.name || m} 加载失败: ${e.message}`, 'error');
+      return [];
+    }
     let def = cfg.columns.length ? cfg.columns : (nr.length ? Object.keys(nr[0]) : []);
     nr = nr.map(r => { let o = {}; def.forEach(k => { o[k] = r[k] !== undefined ? r[k] : '-'; }); return o; });
     nr = cfg.postProcess(nr);
@@ -278,10 +293,41 @@ window.MV = (function() {
 
   // ─── SSE 分片推送 + diff 闪动 ───
   let _sse = null;
-  function _connectSSE(m) {
+  // V2.2.7: SSE 失败计数 + 状态抑制
+  let _sseErrCount = 0;
+  const SSE_MAX_ERR = 5;
+  // V2.2.7: 缓存 health 状态（避免每个模块都打 health）
+  let _healthCache = null;
+  let _healthCacheTs = 0;
+  async function _getHealth() {
+    if (_healthCache && Date.now() - _healthCacheTs < 10000) return _healthCache;
+    try {
+      const r = await fetch(MV.API + '/api/health');
+      _healthCache = await r.json();
+      _healthCacheTs = Date.now();
+      return _healthCache;
+    } catch (e) {
+      return null;
+    }
+  }
+  async function _connectSSE(m) {
     if (_sse) { _sse.close(); _sse = null; }
+    // V2.2.7: health[m]===false 时不建立连接（避免 console 反复刷红）
+    const h = await _getHealth();
+    if (h && h[m] === false) {
+      let ls = document.getElementById('liveStatus');
+      if (ls) ls.innerHTML = '<span class="conn-dot off"></span>已禁用';
+      let card = document.getElementById('card_' + m);
+      if (card && card.querySelector('.card-status .status').textContent === '⏳') {
+        card.querySelector('.card-status .status').textContent = '❌';
+        card.querySelector('.card-count').textContent = '已降级';
+      }
+      console.warn(`[SSE] ${m} health=false，跳过建立连接`);
+      return;
+    }
     let url = API + '/api/stream/' + m;
     _sse = new EventSource(url);
+    _sseErrCount = 0;  // V2.2.7: 连接成功重置计数
     _sse.onmessage = function(e) {
       try {
         let msg = JSON.parse(e.data);
@@ -365,8 +411,15 @@ window.MV = (function() {
       } catch(e) {}
     };
     _sse.onerror = function() {
+      _sseErrCount++;
       let ls = document.getElementById('liveStatus');
       if (ls) ls.innerHTML = '<span class="conn-dot off"></span>离线';
+      // V2.2.7: 超过最大重试次数后停止重连（避免 ERR_ABORTED 反复刷红）
+      if (_sseErrCount > SSE_MAX_ERR) {
+        if (_sse) { _sse.close(); _sse = null; }
+        console.warn(`[SSE] ${m} 已重试 ${SSE_MAX_ERR} 次，停止重连`);
+        return;
+      }
       _sse.close();
       setTimeout(() => _connectSSE(m), 5000);
     };
@@ -398,19 +451,27 @@ window.MV = (function() {
   refreshStamp();
 
   // V1.8.6: 每 5s 轮询模块就绪状态
+  // V2.2.7: 直接读 health 字段，health[m.id]===false 时卡片显示 ❌
   setInterval(function() {
       fetch(MV.API + '/api/health')
           .then(function(r) { return r.json(); })
           .then(function(s) {
+              _healthCache = s;  // 同步缓存
+              _healthCacheTs = Date.now();
               MODULES.forEach(function(m) {
                   var card = document.getElementById('card_' + m.id);
                   if (!card) return;
                   var dot = card.querySelector('.card-status .status');
+                  var count = card.querySelector('.card-count');
                   if (s[m.id]) {
+                      // 就绪：只把 ⏳ 状态升级为 ✅，不动已显示的其他状态
                       if (dot && dot.textContent === '⏳') dot.textContent = '✅';
                       card.style.opacity = '1';
                   } else {
-                      card.style.opacity = '0.5';  // 未就绪的卡片半透明
+                      // 未就绪：❌ 状态 + 半透明 + 友好提示
+                      if (dot) dot.textContent = '❌';
+                      if (count && count.textContent === '加载中') count.textContent = '暂不可用';
+                      card.style.opacity = '0.5';
                   }
               });
           })
@@ -427,7 +488,7 @@ window.MV = (function() {
   }
   function doFilter() {
     let cfg = registry[tab];
-    if (cfg && cfg.renderFn) { cfg.renderFn(rows, cols); return; }
+    if (cfg && cfg.renderFn) { document.getElementById('thead').innerHTML = ''; document.getElementById('tbody').innerHTML = ''; document.getElementById('empty').style.display = 'none'; document.getElementById('pager').style.display = 'none'; cfg.renderFn(rows, cols); return; }
     page = 1; render();
   }
 

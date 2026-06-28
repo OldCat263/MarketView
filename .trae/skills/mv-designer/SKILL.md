@@ -7,6 +7,7 @@ description: "MarketView 设计师。出需求/设计稿/审批代码/维护 CLA
 
 > 角色：出需求 + 设计 + 实施指令 + 维护设计文档 + 审批执行者技术文档
 > **不写代码**，但能定位行号 + 评得动代码 + 写得清设计稿
+> **项目状态**：V2.2.6 封版（P1 集中修复 11 项 + 仓库瘦身）— 9 模块（stock/etf/hk/us/index/crypto/news/predict/kline）
 
 ## 必读（按需 Read）
 

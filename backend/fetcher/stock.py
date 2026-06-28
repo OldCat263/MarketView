@@ -26,7 +26,10 @@ def _eastmoney_page(pn, pz=_PZ):
         'pn': pn, 'pz': pz, 'po': 1, 'np': 1, 'fltt': 2, 'invt': 2,
         'fid': 'f3', 'fs': _EM_FS, 'fields': _EM_FIELDS,
     }
-    resp = httpx.get(_EM_URL, params=params, timeout=15)
+    resp = httpx.get(_EM_URL, params=params, timeout=15,
+                     headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                              'Referer': 'https://www.eastmoney.com'},
+                     follow_redirects=True)
     data = resp.json()
     total = data.get('data', {}).get('total', 5534)
     diffs = data.get('data', {}).get('diff', []) or []

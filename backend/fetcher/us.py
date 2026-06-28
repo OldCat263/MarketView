@@ -55,6 +55,34 @@ _US_CATEGORY = {
 
 _US_WHITELIST = set(_US_CATEGORY.keys())
 _US_CODES_SORTED = None
+# V2.2.7: 降级占位符 — 连续失败/空数据时禁用 roller
+_us_disabled = False
+_us_fail_count = 0
+_US_DISABLED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.cache', 'us_disabled.json')
+
+
+def _load_us_disabled():
+    """V2.2.7: 加载持久化降级状态（避免重启后立即重新打数据源）"""
+    global _us_disabled
+    try:
+        if os.path.exists(_US_DISABLED_FILE):
+            with open(_US_DISABLED_FILE, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+                _us_disabled = bool(d.get('disabled', False))
+                if _us_disabled:
+                    print(f'[us] PERSISTENT DISABLED (上次启动发现持续无数据，已自动降级)', flush=True)
+    except Exception:
+        pass
+
+
+def _save_us_disabled(disabled):
+    """V2.2.7: 持久化降级状态"""
+    try:
+        os.makedirs(os.path.dirname(_US_DISABLED_FILE), exist_ok=True)
+        with open(_US_DISABLED_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'disabled': disabled, 'ts': time.time()}, f)
+    except Exception:
+        pass
 
 
 def _load_us_codes():
@@ -106,9 +134,15 @@ def _parse_tencent_us(line):
 
 
 def _from_tencent(codes):
-    """腾讯串行拉取（~150 只/3 批，< 3s）"""
+    """腾讯串行拉取（~150 只/3 批，< 3s）
+    V2.2.7: 连续失败/空数据时自动降级 + 指数退避
+    """
+    global _us_disabled, _us_fail_count
+    if _us_disabled:
+        return []
     batches = [codes[i:i + 50] for i in range(0, len(codes), 50)]
     result = []
+    has_error = False
     for batch in batches:
         try:
             url = 'https://qt.gtimg.cn/q=' + ','.join('us' + str(c) for c in batch)
@@ -119,7 +153,32 @@ def _from_tencent(codes):
                     result.append(r)
         except Exception as e:
             print(f'[us] batch error: {e}', flush=True)
+            has_error = True
+    # V2.2.7: 连续 3 次失败/空数据 → 自动降级
+    if has_error or not result:
+        _us_fail_count += 1
+        if _us_fail_count >= 3:
+            _us_disabled = True
+            _save_us_disabled(True)
+            print(f'[us] AUTO-DISABLED: 连续 {_us_fail_count} 次失败/空数据，已降级为占位符（避免无效请求）', flush=True)
+    else:
+        if _us_fail_count > 0:
+            print(f'[us] 恢复成功，重置 fail_count={_us_fail_count}', flush=True)
+        _us_fail_count = 0
     return result
+
+
+def is_disabled():
+    """V2.2.7: 供 main.py /api/health 读取判断 us 状态"""
+    return _us_disabled
+
+
+def get_backoff_seconds():
+    """V2.2.7: 指数退避（30s→60s→120s→300s→600s 上限）"""
+    if _us_fail_count == 0:
+        return 0
+    base = 30 * (2 ** (_us_fail_count - 1))
+    return min(base, 600)
 
 
 def fetch_shard(shard_idx, total_shards):

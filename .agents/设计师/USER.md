@@ -7,7 +7,6 @@ _Learn about the person you're helping. Update this as you go._
 - **Pronouns:** _(optional)_
 - **Timezone:**
 - **Notes:**
-- **偏好:** 汇报时标明身份 [设计师]/[执行者]/[审批员]
 
 ## Context
 

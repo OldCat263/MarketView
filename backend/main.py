@@ -7,7 +7,7 @@ MarketView — FastAPI 入口 V2.0.2
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-import json, threading, time, queue, os
+import json, threading, time, queue, os, copy
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -18,6 +18,7 @@ from fetcher import (crypto_status, get_crypto_json,
     fetch_us_shard, fetch_index_shard, fetch_crypto_shard, fetch_news_shard)
 from fetcher import kline, indicators
 from fetcher import chanlun, backtest, scorer, fundamentals, ai_analyzer
+from fetcher.us import _load_us_disabled, is_disabled as _us_is_disabled, get_backoff_seconds as _us_backoff  # V2.2.7
 
 # ── 分片配置 ──
 SHARD_CFG = {
@@ -88,21 +89,25 @@ def _load_cache():
         print(f'[cache] load failed (fallback to empty): {e}', flush=True)
 
 def _save_cache():
-    """V2.0.2: 序列化 _cache + _predict_cache 到磁盘（原子写入）"""
+    """V2.0.2: 序列化 _cache + _predict_cache 到磁盘（原子写入）
+    V2.2.5: 锁内 deep copy + flush+fsync 防止：
+    1) roller 线程在 dump 期间修改 shards['data'] 触发 race
+    2) crash 时数据丢失
+    """
     try:
-        data = {}
-        with _cache_lock:  # shallow copy 后释放锁
-            for key in ('stock', 'etf', 'hk', 'us', 'index', 'news'):
-                if key in _cache:
-                    data[key] = _cache[key]
-        with _predict_lock:  # shallow copy predict
-            predict_data = dict(_predict_cache)
+        with _cache_lock:
+            # 锁内 deep copy（递归）— 防止 roller 线程并发修改
+            data = {k: copy.deepcopy(_cache[k]) for k in ('stock', 'etf', 'hk', 'us', 'index', 'news') if k in _cache}
+        with _predict_lock:
+            predict_data = copy.deepcopy(_predict_cache) if _predict_cache else {}
         data['predict'] = predict_data
         data['ts'] = time.time()
         os.makedirs(_CACHE_DIR, exist_ok=True)
         tmp = _SPOT_CACHE_FILE + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())  # 强制落盘，crash 也不丢
         os.replace(tmp, _SPOT_CACHE_FILE)
     except Exception as e:
         print(f'[cache] save error: {e}', flush=True)
@@ -158,16 +163,23 @@ _watchlist = {}
 # V2.0.3: daemon 启动信号（stock+etf preload 完成后触发）
 _predict_ready = threading.Event()
 
+# V2.2.2: 预测加速配置 — 第一轮 10s 快刷，存够数据后切回 300s
+_PREDICT_INTERVAL = 10       # 当前间隔（秒），首次存满后自动切 300
+_PREDICT_FAST_ROUNDS = 5     # 快刷轮数，完成后自动切回
+_PREDICT_FAST_COUNT = 0
+
 def _predict_daemon():
     """V2.0.2+BUG10: 独立线程，等 stock+etf 就绪即启动，5min 重算。
-    优先用自选列表，无自选则取缓存前 20 只。从内存缓存读代码列表（roller 已拉完 spot），不重复调 akshare。"""
-    global _watchlist
+    优先用自选列表，无自选则取缓存前 20 只。从内存缓存读代码列表（roller 已拉完 spot），不重复调 akshare。
+    V2.2.2: 启动时 10s 快刷 5 轮存满 predict 缓存，之后自动切 300s。"""
+    global _watchlist, _PREDICT_INTERVAL, _PREDICT_FAST_COUNT
     _watchlist = _load_watchlist()
     print('[predict_daemon] waiting for stock+etf preload...', flush=True)
     _predict_ready.wait()  # 等 _initial_load 调用 _predict_ready.set()
-    print('[predict_daemon] stock+etf ready, starting', flush=True)
+    print(f'[predict_daemon] stock+etf ready, starting (interval={_PREDICT_INTERVAL}s, fast_rounds={_PREDICT_FAST_ROUNDS})', flush=True)
     while True:
         for m in ('stock', 'etf'):
+            t0 = time.time()
             try:
                 # V2.2.0: 只预测 stock+etf（不再预测 index）
                 # 从 roller 已写好的内存缓存读代码（不调 fetcher，0 akshare 竞争）
@@ -175,8 +187,11 @@ def _predict_daemon():
                 data = json.loads(spot) if isinstance(spot, str) else spot
                 codes = []
                 if isinstance(data, list):
-                    # 直接列表格式（stock/etf 合并后）
+                    # 直接列表格式（stock/etf 合并后）— V2.2.1: 东财返回裸代码，需加前缀
                     codes = [r.get('代码','') for r in data[:50] if isinstance(r, dict) and r.get('代码')]
+                    pf = _CODE_PREFIX.get(m)
+                    if pf:
+                        codes = [pf(c) for c in codes if c]
                 else:
                     items = data if isinstance(data, list) else data.get('shards', {})
                     if not isinstance(items, list):
@@ -192,7 +207,6 @@ def _predict_daemon():
                             if len(codes) >= 50:
                                 break
                 if not codes:
-                    # V2.0.3: 优先用自选列表
                     codes_wl = _watchlist.get(m, [])
                     if codes_wl:
                         codes = codes_wl[:50]
@@ -200,24 +214,42 @@ def _predict_daemon():
                     else:
                         print(f'[predict_daemon] {m} no codes in cache, skip', flush=True)
                         continue
-                cache_key = f'rank_{m}_1d'
+
+                # V2.2.2: 进度日志 — 逐只打分 + 耗时
+                print(f'[predict_daemon] {m} scoring {len(codes)} codes (max_workers=5)...', flush=True)
+                t1 = time.time()
                 results = scorer.rank_batch(m, codes, '1d', 'quick', max_workers=5)
+                t2 = time.time()
+                cache_key = f'rank_{m}_1d'
                 with _predict_lock:
                     _predict_cache[cache_key] = {'data': results, 'ts': time.time()}
                 _predict_status[cache_key] = {'progress': len(results), 'total': len(codes), 'status': 'done'}
+                # 逐条日志输出前五名
+                if results:
+                    top3 = results[:min(3, len(results))]
+                    top_str = ', '.join(f"{r.get('code','?')}={r.get('score',{}).get('total_score',0):.1f}" for r in top3)
+                    print(f'[predict_daemon] {m} done: {len(results)}/{len(codes)} items in {t2-t1:.1f}s [top3: {top_str}]', flush=True)
+                else:
+                    print(f'[predict_daemon] {m} done: 0 items in {t2-t1:.1f}s WARNING', flush=True)
                 with _sse_lock:
                     for q in _sse_queues.get('predict', []):
                         try:
                             q.put_nowait({'type': 'rank_update', 'data': results[:50], 'ts': time.time()})
                         except queue.Full:
                             pass
-                print(f'[predict_daemon] {m} done: {len(results)} items', flush=True)
             except Exception as e:
                 import traceback
                 print(f'[predict_daemon] {m} error: {e}', flush=True)
                 traceback.print_exc()
+        # V2.2.2: 立即存盘，不等下一轮
         _save_cache()
-        time.sleep(300)  # 5min
+        print(f'[predict_daemon] cycle #{_PREDICT_FAST_COUNT+1} saved to disk, next in {_PREDICT_INTERVAL}s', flush=True)
+        _PREDICT_FAST_COUNT += 1
+        # 快刷轮数用完后自动切回 300s
+        if _PREDICT_INTERVAL < 300 and _PREDICT_FAST_COUNT >= _PREDICT_FAST_ROUNDS:
+            _PREDICT_INTERVAL = 300
+            print(f'[predict_daemon] fast rounds done, switching to {_PREDICT_INTERVAL}s interval', flush=True)
+        time.sleep(_PREDICT_INTERVAL)
 
 
 def _stock_prefix(code):
@@ -260,11 +292,18 @@ def _cached_get(key):
     return '[]'
 
 def _roller(key, fetch_shard_fn, start_delay=0):
-    """滚动刷新线程：轮转每个分片"""
+    """滚动刷新线程：轮转每个分片
+    V2.2.7: us 模块支持指数退避（连续失败时 sleep 时长翻倍）
+    """
     cfg = SHARD_CFG[key]
     if start_delay > 0:
         print(f'[roller] {key} waiting {start_delay}s before first fetch...')
         time.sleep(start_delay)
+    # V2.2.7: 美股模块启动时加载持久化降级状态
+    if key == 'us':
+        _load_us_disabled()
+        if _us_is_disabled():
+            print(f'[roller] us 已自动降级，跳过数据获取（运行 /api/health 验证）', flush=True)
     i = 0
     print(f'[roller] {key} thread started, shards={cfg["n"]}, interval={cfg["interval"]}s')
     while True:
@@ -279,6 +318,13 @@ def _roller(key, fetch_shard_fn, start_delay=0):
                         q.put_nowait({'shard': i, 'data': data, 'ts': time.time()})
                     except queue.Full:
                         pass
+            # V2.2.7: us 模块连续失败时按指数退避
+            if key == 'us':
+                backoff = _us_backoff()
+                if backoff > 0:
+                    print(f'[roller] us 连续失败，使用退避 {backoff}s', flush=True)
+                    time.sleep(backoff)
+                    continue
         except Exception as e:
             print(f'[{key}] shard {i} err: {e}')
         i = (i + 1) % cfg['n']
@@ -404,8 +450,13 @@ def _ok(json_str):
 def health():
     status = {'status': 'ok'}
     for key in SHARD_CFG:
-        data = _cached_get(key)
-        status[key] = (data != '[]' and data != '{}')
+        if key == 'predict':
+            # V2.2.1: daemon 写 _predict_cache 不走 _cache
+            with _predict_lock:
+                status['predict'] = bool(_predict_cache.get('rank_stock_1d') or _predict_cache.get('rank_etf_1d'))
+        else:
+            data = _cached_get(key)
+            status[key] = (data != '[]' and data != '{}')
     return status
 
 @app.get('/api/crypto/status')
@@ -456,6 +507,8 @@ KL_NAMES = {
 
 @app.get('/api/kline/{module}/{code}')
 def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750):
+    # V2.2.6: count 上限（防用户传 999999 撑爆内存/触发限流）
+    count = min(max(count, 1), 1500)
     cache_key = f'{module}_{code}_{period}'  # V2.0.2: 不含 count，不同 count 请求共享缓存
     # 读缓存（5min TTL）
     cached = get_kline_cache(cache_key)
@@ -492,7 +545,9 @@ def kline_endpoint(module: str, code: str, period: str = '1d', count: int = 750)
         set_kline_cache(cache_key, {'data': resp_data, 'ts': time.time()})
         return JSONResponse(resp_data)
     except Exception as e:
-        return JSONResponse({'error': str(e)}, status_code=500)
+        # V2.2.6: 错误信息不外泄，返回通用错误码 + 内部日志
+        print(f'[kline_endpoint] {module}/{code} error: {e}', flush=True)
+        return JSONResponse({'error': 'internal error', 'module': module, 'code': code}, status_code=500)
 
 # ── K线 SSE 实时推送（V1.7.0 Step 5）──
 @app.get('/api/stream/kline/{module}/{code}')
@@ -551,7 +606,9 @@ def predict_analyze(module: str, code: str, period: str = '1d', count: int = 100
             result['ai'] = ai_analyzer.analyze(result)
         return JSONResponse(result)
     except Exception as e:
-        return JSONResponse({'error': str(e)}, status_code=500)
+        # V2.2.6: 错误信息不外泄，返回通用错误码 + 内部日志
+        print(f'[predict_analyze] {module}/{code} error: {e}', flush=True)
+        return JSONResponse({'error': 'internal error', 'module': module, 'code': code}, status_code=500)
 
 
 @app.get('/api/fundamental/{module}/{code}')
@@ -569,6 +626,33 @@ def predict_rank(module: str, period: str = '1d', limit: int = 50):
         cached = _predict_cache.get(cache_key)
     if cached:
         data = cached['data'][:limit]
+        # V2.2.3: 从 spot 缓存补齐名称（scorer 不输出 name）
+        try:
+            spot = _cached_get(module)
+            spot_data = json.loads(spot) if isinstance(spot, str) else spot
+            name_map = {}
+            if isinstance(spot_data, list):
+                for r in spot_data:
+                    code = r.get('代码','') or r.get('code','')
+                    name = r.get('名称','') or r.get('name','')
+                    if code and name:
+                        name_map[code] = name
+            elif isinstance(spot_data, dict):
+                for sd in spot_data.get('shards',{}).values():
+                    for r in sd.get('data',[]) if isinstance(sd,dict) else []:
+                        code = r.get('代码','') or r.get('code','')
+                        name = r.get('名称','') or r.get('name','')
+                        if code and name:
+                            name_map[code] = name
+            # 补齐：scorer 用带前缀 code，spot 可能裸代码/前缀都有
+            for item in data:
+                if not item.get('name'):
+                    c = item.get('code','')
+                    nf = name_map.get(c) or (name_map.get(c[2:]) if len(c)>2 and c[:2] in ('sh','sz','SH','SZ') else None) or (name_map.get('sh'+c) if not c.startswith(('sh','sz','SH','SZ')) else None) or (name_map.get('sz'+c) if not c.startswith(('sh','sz','SH','SZ')) else None)
+                    if nf:
+                        item['name'] = nf
+        except Exception:
+            pass
         return JSONResponse({'data': data, 'cached_at': cached['ts'], 'ts': time.time()})
     return JSONResponse({'data': [], 'message': 'no cached rank, POST /api/predict/batch first'})
 
@@ -695,7 +779,9 @@ async def stream_module(module: str):
                     yield ': ping\n\n'
         finally:
             with _sse_lock:
-                _sse_queues[module].remove(q)
+                # V2.2.6: 防御性 remove（多 consumer 边界情况下可能已被其他 finally 清掉）
+                if q in _sse_queues[module]:
+                    _sse_queues[module].remove(q)
     return StreamingResponse(gen(), media_type='text/event-stream',
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 

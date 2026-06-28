@@ -102,7 +102,7 @@ fetch('snapshot.json?' + Date.now())
   })
   .catch(function() {});
 </script>
-<script src="js/core.js"></script>
+<script src="js/core.js?v=225"></script>
 <script src="js/modules/crypto.js"></script>
 <script src="js/modules/stock.js"></script>
 <script src="js/modules/etf.js"></script>
@@ -110,13 +110,15 @@ fetch('snapshot.json?' + Date.now())
 <script src="js/modules/us.js"></script>
 <script src="js/modules/index_mod.js"></script>
 <script src="js/modules/news.js"></script>
-<script src="js/modules/predict.js"></script>
+<script src="js/modules/predict.js?v=229"></script>
 <script src="js/kline.js"></script>
 <script>
 (function() {
   let html = '';
   MV.MODULES.forEach(m => {
-    html += '<div class="card" id="card_'+m.id+'" onclick="MV.'+(m.id==='crypto'?'startCrypto':'startModule')+'(\''+m.id+'\')">'+
+    // V2.2.7: 加密货币卡片加 tooltip 说明（需 CRYPTO_PROXY 环境变量）
+    var extra = m.id === 'crypto' ? ' title="需配置 CRYPTO_PROXY 环境变量才能加载"' : '';
+    html += '<div class="card" id="card_'+m.id+'"'+extra+' onclick="MV.'+(m.id==='crypto'?'startCrypto':'startModule')+'(\''+m.id+'\')">'+
       '<div class="card-icon">'+m.icon+'</div>'+
       '<div class="card-name">'+m.name+'</div>'+
       '<div class="card-status"><span class="status">⏳</span></div>'+

@@ -26,7 +26,10 @@ def _from_eastmoney_china():
         'pn': 1, 'pz': 50, 'po': 1, 'np': 1, 'fltt': 2, 'invt': 2,
         'fid': 'f6', 'fs': _EM_FS, 'fields': _EM_FIELDS,
     }
-    resp = httpx.get(_EM_URL, params=params, timeout=15)
+    resp = httpx.get(_EM_URL, params=params, timeout=15,
+                     headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                              'Referer': 'https://www.eastmoney.com'},
+                     follow_redirects=True)
     data = resp.json()
     diffs = data.get('data', {}).get('diff', []) or []
     rows = []

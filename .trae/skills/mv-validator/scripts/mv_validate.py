@@ -44,7 +44,15 @@ PROJECT_ROOT = os.path.dirname(
     )
 )
 
-MODULES = ['stock', 'etf', 'hk', 'us', 'index', 'crypto', 'news']
+MODULES = ['stock', 'etf', 'hk', 'us', 'index', 'crypto', 'news', 'predict']
+# V2.2.0+ 模块期望数据量（不含 crypto/news，crypto 无代理 news 受新闻源影响）
+MIN_COUNTS = {
+    'stock': 5000,   # A股 push2 全量
+    'etf':   1000,   # ETF push2 全量
+    'hk':    2000,   # 港股腾讯主源
+    'us':    15000,  # 美股腾讯 us 前缀
+    'index': 400,    # 指数 push2
+}
 CORE_FILES = [
     'backend/main.py',
     'frontend/js/core.js',
@@ -58,6 +66,12 @@ KLINE_SAMPLES = {
     'us': 'usAAPL',
     'index': 'sh000001',
     'crypto': 'BTCUSDT',
+}
+# V2.2.0+ 数据源标识（字段指纹：source 字段或数据条数）
+SOURCE_FINGERPRINT = {
+    'stock': {'min': 5000, 'source_hint': '东财push2/腾讯/新浪'},
+    'etf':   {'min': 1000, 'source_hint': '东财push2/基金/同花顺'},
+    'index': {'min': 400,  'source_hint': '东财push2/新浪'},
 }
 
 
@@ -89,7 +103,7 @@ def read_sse_lines(url, timeout=6, max_lines=15):
 
 
 def check_modules():
-    hr('1. 6 模块数据量检查')
+    hr('1. 9 模块数据量检查（含 V2.2.0 数据源阈值）')
     total_ok = 0
     for m in MODULES:
         data = fetch_json(f'{BASE_URL}/api/{m}/spot')
@@ -106,15 +120,80 @@ def check_modules():
         else:
             cnt = 0
             structure = 'unknown'
+        # V2.2.0+ 数据量阈值检查
+        min_ok = cnt >= MIN_COUNTS.get(m, 0) if m in MIN_COUNTS else None
         if m == 'crypto' and cnt == 0:
             print(f'  ⚠️  {m:8s} {cnt:>6} 条  ({structure}) - 无代理属预期')
-        elif cnt > 0:
-            print(f'  ✅ {m:8s} {cnt:>6} 条  ({structure})')
+        elif m in MIN_COUNTS and min_ok:
+            print(f'  ✅ {m:8s} {cnt:>6} 条  ({structure})  ≥ 阈值 {MIN_COUNTS[m]}')
             total_ok += 1
+        elif m == 'news' and cnt > 0:
+            print(f'  ✅ {m:8s} {cnt:>6} 条  ({structure})  新闻源')
+            total_ok += 1
+        elif cnt > 0:
+            print(f'  ⚠️  {m:8s} {cnt:>6} 条  ({structure})  低于阈值 {MIN_COUNTS.get(m, "-")}')
         else:
             print(f'  ❌ {m:8s} {cnt:>6} 条  ({structure})')
+    # V2.2.0 数据源指纹
+    print('\n  [V2.2.0] 数据源指纹（stock/etf/index 应为东财 push2 主源）')
+    for m, fp in SOURCE_FINGERPRINT.items():
+        data = fetch_json(f'{BASE_URL}/api/{m}/spot')
+        if '_error' in data:
+            print(f'    ❌ {m}: 连接失败')
+            continue
+        d = data.get('data', [])
+        cnt = len(d) if isinstance(d, list) else sum(len(v) for v in d.values() if isinstance(v, list))
+        if cnt >= fp['min']:
+            print(f'    ✅ {m}: {cnt} 条 ≥ {fp["min"]}（{fp["source_hint"]}）')
+        else:
+            print(f'    ⚠️  {m}: {cnt} 条 < {fp["min"]}（应 {fp["source_hint"]}，可能回退到旧源）')
     print(f'\n  汇总: {total_ok}/{len(MODULES)-1} 模块有数据（crypto 单独计）')
     return total_ok
+
+
+def check_disk_cache():
+    """V2.0.2+ 磁盘缓存验证"""
+    hr('1.5. V2.0.2+ 磁盘缓存验证')
+    cache_dir = os.path.join(PROJECT_ROOT, 'backend', '.cache')
+    if not os.path.exists(cache_dir):
+        print(f'  ⚠️  {cache_dir} 不存在（首次启动或权限问题）')
+        return
+    files = os.listdir(cache_dir)
+    expected = ['spot_cache.json']
+    for fname in expected:
+        fpath = os.path.join(cache_dir, fname)
+        if fname not in files:
+            print(f'  ❌ {fname:30s} 不存在（启动 30s 后应自动生成）')
+            continue
+        size_kb = os.path.getsize(fpath) / 1024
+        mtime = os.path.getmtime(fpath)
+        import time
+        age_sec = time.time() - mtime
+        # 可解析
+        try:
+            with open(fpath, 'r', encoding='utf-8') as fp:
+                obj = json.load(fp)
+            if fname == 'spot_cache.json':
+                modules_count = len([k for k in obj if k != '_meta'])
+                print(f'  ✅ {fname:30s} {size_kb:>6.1f} KB  {age_sec:>4.0f}s 前  含 {modules_count} 模块')
+            else:
+                print(f'  ✅ {fname:30s} {size_kb:>6.1f} KB  {age_sec:>4.0f}s 前  可解析')
+        except json.JSONDecodeError:
+            print(f'  ❌ {fname:30s} JSON 损坏')
+    # V2.0.3 自选列表
+    if 'watchlist.json' in files:
+        fpath = os.path.join(cache_dir, 'watchlist.json')
+        size_kb = os.path.getsize(fpath) / 1024
+        print(f'  ✅ watchlist.json (V2.0.3+)  {size_kb:>6.1f} KB')
+    # V1.8.6 首屏快照
+    snapshot = os.path.join(PROJECT_ROOT, 'frontend', 'snapshot.json')
+    if os.path.exists(snapshot):
+        size_kb = os.path.getsize(snapshot) / 1024
+        import time
+        age_sec = time.time() - os.path.getmtime(snapshot)
+        print(f'  ✅ snapshot.json (V1.8.6+) {size_kb:>6.1f} KB  {age_sec:>4.0f}s 前')
+    else:
+        print(f'  ⚠️  frontend/snapshot.json 不存在（启动 5s 后应生成）')
 
 
 def check_sse():
@@ -261,8 +340,17 @@ def check_predict():
 def check_rules():
     hr('4. 铁律自检')
 
-    # 铁律 3: 零本地存储
-    print('\n  [铁律 3] 零本地存储 - 检查 backend/ 有无业务写盘')
+    # 铁律 3: 零本地存储（含 V2.0.2 豁免清单识别）
+    print('\n  [铁律 3] 零本地存储 - 检查 backend/ 有无业务写盘（豁免 V2.0.2 性能优化）')
+    # 豁免函数（V2.0.2 设计师审批 + V2.2.7 追加）：写 .cache/ 性能文件
+    EXEMPT_FUNCS = {
+        '_save_cache',      # main.py: spot_cache.json 持久化
+        '_save_watchlist',  # main.py: watchlist.json 用户自选
+        '_write_snapshot',  # main.py: frontend/snapshot.json 首屏
+        '_load_us_codes',   # us.py: _US_CODES_FILE 白名单缓存
+        '_save_kline_cache',# utils.py: kline_cache.json K线缓存
+        '_save_us_disabled',# V2.2.7 us.py: us_disabled.json 降级状态持久化
+    }
     open_writes = []
     for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, 'backend')):
         if '__pycache__' in root or '.pyc' in root or '/.' in root:
@@ -272,22 +360,50 @@ def check_rules():
                 continue
             path = os.path.join(root, f)
             try:
+                # 整文件扫描上下文，识别是否在豁免函数内
                 with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
-                    for i, line in enumerate(fp, 1):
-                        if re.search(r"\bopen\([^)]*['\"]w['\"]", line):
-                            if 'logging.' not in line and 'self.write' not in line and '#' not in line.split('open')[0]:
-                                open_writes.append(f'{path}:{i}: {line.strip()[:80]}')
-                        elif re.search(r'\.write\(', line) and 'self.write' not in line and 'resp.write' not in line:
-                            if '#' not in line.split('.write')[0]:
-                                open_writes.append(f'{path}:{i}: {line.strip()[:80]}')
+                    content = fp.read()
+                # 函数定义范围（粗略：def func_name 起到下一个 def 同级）
+                exempt_zones = []
+                for ef in EXEMPT_FUNCS:
+                    idx = 0
+                    while True:
+                        dpos = content.find(f'def {ef}(', idx)
+                        if dpos < 0:
+                            break
+                        # 找下一个顶格 def（同缩进）或文件结尾
+                        next_def = content.find('\ndef ', dpos + 1)
+                        end = next_def if next_def > 0 else len(content)
+                        exempt_zones.append((dpos, end))
+                        idx = end
+                for i, line in enumerate(content.split('\n'), 1):
+                    if re.search(r"\bopen\([^)]*['\"]w['\"]", line):
+                        if 'logging.' in line or 'self.write' in line:
+                            continue
+                        if '#' in line.split('open')[0]:
+                            continue
+                        # 检查是否在豁免函数区内
+                        line_pos = sum(len(l) + 1 for l in content.split('\n')[:i-1])
+                        in_exempt = any(s <= line_pos < e for s, e in exempt_zones)
+                        if in_exempt:
+                            continue
+                        open_writes.append(f'{path}:{i}: {line.strip()[:80]}')
+                    elif re.search(r'\.write\(', line) and 'self.write' not in line and 'resp.write' not in line:
+                        if '#' in line.split('.write')[0]:
+                            continue
+                        line_pos = sum(len(l) + 1 for l in content.split('\n')[:i-1])
+                        in_exempt = any(s <= line_pos < e for s, e in exempt_zones)
+                        if in_exempt:
+                            continue
+                        open_writes.append(f'{path}:{i}: {line.strip()[:80]}')
             except Exception:
                 pass
     if open_writes:
-        print(f'    ⚠️  疑似 {len(open_writes)} 处业务写盘:')
+        print(f'    ⚠️  疑似 {len(open_writes)} 处业务写盘（豁免清单外）:')
         for w in open_writes[:5]:
             print(f'      - {w}')
     else:
-        print('    ✅ 无业务写盘')
+        print(f'    ✅ 无业务写盘（豁免 {len(EXEMPT_FUNCS)} 处性能优化写盘）')
 
     # 铁律 4: 免费 API
     print('\n  [铁律 4] 免费 API - 检查有无 api_key/token/secret 硬编码')
@@ -346,7 +462,7 @@ def main():
         'predict': [check_predict],
         'rules': [check_rules],
         'diff': [check_rules],
-        'all': [check_modules, check_sse, check_kline, check_news, check_predict, check_rules],
+        'all': [check_modules, check_disk_cache, check_sse, check_kline, check_news, check_predict, check_rules],
     }
     if arg not in actions:
         print(f'用法: {sys.argv[0]} [all|modules|sse|kline|news|predict|rules|diff]')
